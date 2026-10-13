@@ -9,9 +9,6 @@ IMDB_DIR = DADOS / "imdb"
 LOGS = DADOS / "logs"
 WEB = RAIZ / "web"
 
-# A chave do TMDB fica fora do projeto, no cofre. Só o valor, numa linha.
-TMDB_CHAVE = Path("D:/Segredos/Muvim/tmdb.txt")
-
 PORTA = 8790
 USER_AGENT = "Muvim/1.0 (catalogo pessoal de filmes e series; https://github.com/alvimpl/muvim)"
 

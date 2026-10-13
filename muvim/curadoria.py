@@ -63,7 +63,7 @@ def coletar(con, ex):
     for r in alvos:
         saida = _perguntar(exe, PROMPT.format(titulo=r["titulo"], texto=r["texto"][:14000]))
         if re.search(r"not logged in|please run /login", saida, re.I):
-            ex.mensagem = "Claude Code sem login: rode `claude` uma vez no terminal e faça /login"
+            ex.mensagem = "Opcional: o Claude Code deste PC não está logado (sem login)"
             break
         dados = _json(saida)
         if not dados or not dados.get("curiosidades"):

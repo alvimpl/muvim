@@ -27,29 +27,28 @@ powershell -ExecutionPolicy Bypass -File scripts\instalar-agendamento.ps1
 |---|---|---|
 | Wikipedia (listas anuais de filmes americanos) | Estreias de cinema, direção, elenco, sinopse, pôster, texto para curiosidades | Não |
 | Wikipedia em português | Sinopse e título brasileiro (“bra: …”) | Não |
-| Wikidata (API de entidades) | Código do IMDb e popularidade (nº de Wikipedias com artigo) | Não |
+| Wikidata (API de entidades) | Código do IMDb, popularidade (nº de Wikipedias com artigo), estreia no Brasil quando cadastrada | Não |
 | TVmaze | Estreias de temporada em streaming e na TV brasileira, elenco, episódios | Não |
 | IMDb datasets | Notas e votos (diário); ligações entre pessoas (semanal) | Não. Uso pessoal, não comercial |
 | Wikimedia “neste dia” | Aniversariantes de cinema | Não |
-| TMDB | Data de estreia no Brasil, título e sinopse em português, onde assistir no Brasil | Sim, gratuita |
-| Claude Code | Curiosidades e sinopses em português | Usa o seu login do Claude Code |
+| Claude Code | Curiosidades e sinopses em português | Opcional. Usa o Claude Code já logado neste PC |
 
-### Ligar o TMDB
+Nenhuma fonte pede cadastro. A data de estreia no Brasil vem do Wikidata quando alguém a cadastrou lá,
+o que ainda é raro; quando falta, vale a data dos EUA, sempre marcada como tal. Filmes lançados direto
+em Netflix, Apple TV, Disney+, Prime Video, HBO Max ou Paramount+ são reconhecidos pelo distribuidor.
 
-Crie a conta em themoviedb.org, gere a chave da API e salve **só o valor**, numa linha, em
-`D:\Segredos\Muvim\tmdb.txt`. A próxima coleta usa sozinha.
-
-### Ligar a curadoria pelo Claude
+### Curadoria pelo Claude (opcional)
 
 O coletor procura o `claude` no PATH ou o que vem com o app desktop. Se a etapa disser “sem login”,
-rode `claude` uma vez num terminal e faça `/login`. São no máximo 15 títulos e uma tradução em lote por dia.
-Sem isso, as curiosidades são trechos do artigo em inglês, escolhidos automaticamente.
+o Claude Code deste PC não está logado; o resto funciona igual. São no máximo 15 títulos e uma
+tradução em lote por dia. Sem ela, as curiosidades são trechos do artigo em inglês, escolhidos
+automaticamente.
 
 ## Como funciona
 
 - `coletar.py` roda as etapas em ordem. Cada uma registra resultado em `execucoes` (tela Bastidores).
   Uma etapa com erro não derruba as outras.
-- Toda gravação compara com o valor anterior. Datas, temporada, onde assistir, nota e título em
+- Toda gravação compara com o valor anterior. Datas, temporada, streaming, nota e título em
   português que mudam viram linhas em `mudancas` (tela O que mudou) e, se o título está na sua lista,
   um alerta (sino e notificação do Windows).
 - As requisições têm pausa por site e nova tentativa em erro 429. Wikimedia e Wikidata limitam quem pede rápido demais.

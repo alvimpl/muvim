@@ -13,7 +13,6 @@ from urllib.parse import parse_qs, unquote, urlparse
 from muvim import db
 from muvim.config import PORTA, POSTERES, RAIZ, WEB
 from muvim.curadoria import achar_claude
-from muvim.fontes import tmdb
 from muvim.fontes.imdb import normalizar
 
 
@@ -161,7 +160,7 @@ def titulo(con, tid):
 
 # ---------------------------------------------------------------- mudanças, lista, alertas
 ROTULOS = {"novo": "Entrou no radar", "data_eua": "Estreia nos EUA", "data_br": "Estreia no Brasil",
-           "temporada": "Temporada", "onde_br": "Onde assistir", "nota_imdb": "Nota IMDb", "titulo_pt": "Título em português"}
+           "temporada": "Temporada", "onde_br": "Streaming", "nota_imdb": "Nota IMDb", "titulo_pt": "Título em português"}
 
 
 def mudancas(con, dias):
@@ -297,7 +296,7 @@ def bastidores(con):
         grafo_titulos=con.execute("SELECT count(*) FROM g_titulos").fetchone()[0],
         mudancas=con.execute("SELECT count(*) FROM mudancas").fetchone()[0])
     return dict(fontes=fontes, contagens=contagens, ultima_coleta=db.meta(con, "coleta_ok"),
-                grafo_em=db.meta(con, "grafo_em"), tmdb=tmdb.disponivel(), claude=bool(achar_claude()),
+                grafo_em=db.meta(con, "grafo_em"), claude=bool(achar_claude()),
                 coletando=(RAIZ / "dados" / "coleta.trava").exists())
 
 

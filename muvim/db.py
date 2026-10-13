@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS titulos(
   data_br TEXT,
   temporada INTEGER,
   servico TEXT,                   -- série: canal/streaming de origem
-  onde_br TEXT,                   -- JSON: onde assistir no Brasil (TMDB)
+  onde_br TEXT,                   -- JSON: streaming de origem do filme (Netflix, Apple TV...)
   estudio TEXT,
   direcao TEXT,
   generos TEXT,                   -- JSON
@@ -28,7 +28,6 @@ CREATE TABLE IF NOT EXISTS titulos(
   wikidata TEXT,
   imdb_id TEXT,
   tvmaze_id INTEGER,
-  tmdb_id INTEGER,
   nota_imdb REAL,
   votos_imdb INTEGER,
   hype INTEGER,                   -- filmes: nº de Wikipedias com artigo; séries: peso do TVmaze
@@ -100,6 +99,8 @@ CREATE TABLE IF NOT EXISTS meta(chave TEXT PRIMARY KEY, valor TEXT);
 
 # Campos cuja mudança vira notícia em "O que mudou"
 VIGIADOS = ("data_eua", "data_br", "temporada", "onde_br", "nota_imdb", "titulo_pt")
+# Nestes, aparecer pela primeira vez já é notícia (ex.: o filme ganhou data no Brasil)
+NOVIDADE_DO_ZERO = ("data_br", "data_eua")
 
 
 _preparado = False
@@ -161,9 +162,12 @@ def gravar_titulo(con, rec: dict, registrar=True):
     novos = {k: v for k, v in rec.items() if k != "id" and v is not None}
     if registrar:
         for campo in VIGIADOS:
-            if campo in novos and antigo[campo] is not None and not _igual(campo, antigo[campo], novos[campo]):
+            if campo not in novos or _igual(campo, antigo[campo], novos[campo]):
+                continue
+            if antigo[campo] is not None or campo in NOVIDADE_DO_ZERO:
                 con.execute("INSERT INTO mudancas(dia,titulo_id,campo,antes,depois) VALUES(?,?,?,?,?)",
-                            (hoje(), rec["id"], campo, str(antigo[campo]), str(novos[campo])))
+                            (hoje(), rec["id"], campo, None if antigo[campo] is None else str(antigo[campo]),
+                             str(novos[campo])))
     if novos:
         novos["atualizado_em"] = agora()
         sets = ",".join(f"{k}=?" for k in novos)

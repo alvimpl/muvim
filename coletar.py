@@ -13,7 +13,7 @@ import time
 
 from muvim import alertas, curadoria, db
 from muvim.config import LOGS, DADOS
-from muvim.fontes import extras, imdb, tmdb, tvmaze, wikidata, wikipedia
+from muvim.fontes import extras, imdb, tvmaze, wikidata, wikipedia
 
 TRAVA = DADOS / "coleta.trava"
 
@@ -24,7 +24,6 @@ def etapas(registrar, forcar_grafo):
         ("wikipedia-detalhes", lambda c, e: wikipedia.coletar_detalhes(c, e, registrar)),
         ("wikidata", lambda c, e: wikidata.coletar(c, e, registrar)),
         ("tvmaze", lambda c, e: tvmaze.coletar(c, e, registrar)),
-        ("tmdb", lambda c, e: tmdb.coletar(c, e, registrar)),
         ("imdb-notas", lambda c, e: imdb.notas(c, e, registrar)),
         ("aniversarios", extras.aniversarios),
         ("posteres", extras.posteres),

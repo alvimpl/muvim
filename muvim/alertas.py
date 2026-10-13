@@ -5,7 +5,7 @@ from datetime import date, timedelta
 from . import db
 
 ROTULO = {"data_eua": "mudou a estreia nos EUA", "data_br": "ganhou/mudou a data no Brasil",
-          "onde_br": "mudou onde assistir no Brasil", "temporada": "tem temporada nova",
+          "onde_br": "mudou o streaming", "temporada": "tem temporada nova",
           "nota_imdb": "mudou a nota no IMDb", "titulo_pt": "ganhou título em português"}
 
 

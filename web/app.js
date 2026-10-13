@@ -34,6 +34,7 @@ function ticket(t) {
   const d = dataPrinc(t), dd = dt(d);
   const meta = t.tipo === "serie"
     ? `<span class="svc">${esc(t.servico || "")}</span>${t.temporada === 1 ? '<span class="pill new">Série nova</span>' : `<span class="pill ret">Temporada ${t.temporada ?? "?"}</span>`}`
+    : t.onde_br ? `<span class="svc">${esc(t.onde_br.join(", "))}</span>Lançamento direto no streaming`
     : `Cinema ${ondeData(t)} · ${esc(t.estudio || "")}`;
   return `<a class="ticket" href="${linkT(t.id)}"><div class="stub"><b class="num">${dd.getDate()}</b><span>${MES[dd.getMonth()]}</span></div>
   <div class="body"><div style="min-width:0"><h4>${esc(nome(t))}</h4><div class="meta">${meta} ${t.nota_imdb ? `<span class="star">★ ${t.nota_imdb}</span>` : ""}</div></div>${t.poster ? `<img src="${t.poster}" alt="" loading="lazy">` : ""}</div></a>`;
@@ -113,7 +114,7 @@ async function vPessoas() {
 let filtroMudou = "tudo";
 async function vMudou() {
   const M = await api("/api/mudancas?dias=14");
-  const campos = [["tudo", "Tudo"], ["data", "Datas"], ["novo", "Novos no radar"], ["nota_imdb", "Notas"], ["onde_br", "Onde assistir"], ["temporada", "Temporadas"]];
+  const campos = [["tudo", "Tudo"], ["data", "Datas"], ["novo", "Novos no radar"], ["nota_imdb", "Notas"], ["onde_br", "Streaming"], ["temporada", "Temporadas"]];
   const vis = M.filter(m => filtroMudou === "tudo" || m.campo === filtroMudou || (filtroMudou === "data" && m.campo.startsWith("data")));
   const porDia = {};
   vis.forEach(m => (porDia[m.dia] ??= []).push(m));
@@ -180,7 +181,7 @@ async function vTitulo(id) {
     T.data_br && ["Estreia Brasil", fmtAno(T.data_br)],
     serie && T.data_eua && [`Temporada ${T.temporada}`, fmtAno(T.data_eua)],
     serie && T.servico && ["Onde", T.servico],
-    T.onde_br && ["Streaming no Brasil", T.onde_br.join(", ")],
+    T.onde_br && ["Lançamento direto em", T.onde_br.join(", ")],
     T.direcao && ["Direção", T.direcao],
     T.estudio && ["Estúdio", T.estudio],
     T.generos?.length && ["Gêneros", T.generos.join(", ")],
@@ -283,13 +284,13 @@ function ligarMaratona(T) {
 
 /* ---------- Bastidores ---------- */
 const NOMES_FONTES = { "wikipedia-listas": "Wikipedia · listas de estreias", "wikipedia-detalhes": "Wikipedia · resumos e pôsteres", wikidata: "Wikidata · IMDb e popularidade",
-  tvmaze: "TVmaze · séries", tmdb: "TMDB · Brasil", "imdb-notas": "IMDb · notas", aniversarios: "Wikimedia · aniversários", posteres: "Pôsteres",
+  tvmaze: "TVmaze · séries", "imdb-notas": "IMDb · notas", aniversarios: "Wikimedia · aniversários", posteres: "Pôsteres",
   curiosidades: "Curiosidades por extração", "curadoria-claude": "Curadoria pelo Claude", "imdb-grafo": "IMDb · ligações", alertas: "Alertas" };
 async function vBastidores() {
   const B = await api("/api/bastidores");
   const c = B.contagens;
   const cartao = f => {
-    const sem = (f.fonte === "tmdb" && f.mensagem === "sem chave") || (f.fonte === "curadoria-claude" && /sem login|não encontrado/.test(f.mensagem || ""));
+    const sem = f.fonte === "curadoria-claude" && /sem login|não encontrado/.test(f.mensagem || "");
     const cls = f.status === "erro" ? "erro" : sem ? "off" : f.status === "rodando" ? "warn" : "ok";
     const rot = f.status === "erro" ? "Erro" : sem ? "Desligada" : f.status === "rodando" ? "Rodando" : "Ok";
     return `<article><h4>${esc(NOMES_FONTES[f.fonte] || f.fonte)}<span class="st ${cls}">${rot}</span></h4><div class="big num">${pt(f.itens)}</div>
@@ -300,9 +301,8 @@ async function vBastidores() {
   <div class="counts">${[[c.filmes, "filmes"], [c.series, "séries"], [c.posteres, "pôsteres"], [c.com_pt, "sinopses em português"], [c.curiosidades, "títulos com curiosidades"], [c.episodios, "episódios"], [c.grafo_pessoas, "pessoas no grafo"], [c.mudancas, "mudanças registradas"]]
     .map(([n, r]) => `<div class="kpi"><b class="num">${pt(n)}</b><span>${r}</span></div>`).join("")}</div>
   <div class="acts" style="margin-top:20px"><button class="btn primary" id="coletar" ${B.coletando ? "disabled" : ""}>${B.coletando ? "Coletando…" : "Atualizar agora"}</button></div></div>
-  <div><div class="sec-h"><h2>Fontes</h2><p>Resultado da última execução de cada etapa.</p></div><div class="srcs">${B.fontes.map(cartao).join("") || '<div class="vazio">Nenhuma coleta registrada.</div>'}</div></div>
-  <div class="note">${B.tmdb ? "TMDB ligado: datas do Brasil, títulos em português e onde assistir." : "TMDB desligado. Para ligar, crie a conta gratuita, gere a chave e salve só o valor em D:\\Segredos\\Muvim\\tmdb.txt."}<br>
-  ${B.claude ? "Claude Code encontrado. Se a curadoria disser “sem login”, rode claude uma vez no terminal e faça /login." : "Claude Code não encontrado neste PC."}</div>
+  <div><div class="sec-h"><h2>Fontes</h2><p>Resultado da última execução de cada etapa.</p></div><div class="srcs">${B.fontes.filter(f => NOMES_FONTES[f.fonte]).map(cartao).join("") || '<div class="vazio">Nenhuma coleta registrada.</div>'}</div></div>
+  <div class="note">Todas as fontes são abertas e não pedem cadastro. A curadoria pelo Claude é opcional: usa o Claude Code deste PC se ele estiver logado. Sem ela, as curiosidades vêm direto do artigo da Wikipedia.</div>
   </section>`);
   $("coletar").onclick = async () => { await api("/api/coletar", {}); $("coletar").textContent = "Coletando…"; $("coletar").disabled = true; };
 }

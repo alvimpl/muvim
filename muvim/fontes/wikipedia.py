@@ -85,6 +85,19 @@ def id_filme(pagina, titulo, data):
     return "f:" + (pagina or f"{titulo} ({data[:4]})").replace(" ", "_")
 
 
+# Distribuidores que lançam direto no próprio streaming, que também existe no Brasil.
+# (Hulu e Peacock ficam de fora: não operam aqui.)
+STREAMINGS = {"Netflix": "Netflix", "Apple TV": "Apple TV", "Apple Original Films": "Apple TV",
+              "Disney+": "Disney+", "Prime Video": "Prime Video", "HBO Max": "HBO Max", "Max": "HBO Max",
+              "Paramount+": "Paramount+"}
+
+
+def _streaming(estudio):
+    partes = [p.strip() for p in estudio.split(" / ")]
+    achados = sorted({STREAMINGS[p] for p in partes if p in STREAMINGS})
+    return achados or None
+
+
 def coletar_listas(con, ex, registrar=True):
     hoje = date.today()
     ini, fim = hoje - timedelta(days=DIAS_PASSADO), hoje + timedelta(days=DIAS_FUTURO)
@@ -97,6 +110,7 @@ def coletar_listas(con, ex, registrar=True):
             tid = id_filme(f["pagina"], f["titulo"], f["data"])
             db.gravar_titulo(con, dict(id=tid, tipo="filme", titulo=f["titulo"], data_eua=f["data"],
                                        estudio=f["estudio"].split(" / ")[0], direcao=", ".join(direcao),
+                                       onde_br=_streaming(f["estudio"]),
                                        wiki_pagina=f["pagina"]), registrar)
             db.gravar_elenco(con, tid, [(n, None) for n in elenco[:12]])
             vistos += 1
