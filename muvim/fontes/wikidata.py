@@ -20,6 +20,20 @@ def _data_br(claims):
     return min(datas) if datas else None
 
 
+def _criticas(claims):
+    """Notas de crítica (P444) qualificadas por quem deu a nota (P447): Rotten Tomatoes e Metacritic."""
+    from .qlever import METACRITIC, ROTTEN, _pct
+    out = {}
+    for c in claims.get("P444", []):
+        nota = c.get("mainsnak", {}).get("datavalue", {}).get("value")
+        por = [q.get("datavalue", {}).get("value", {}).get("id") for q in c.get("qualifiers", {}).get("P447", [])]
+        v = _pct(nota) if isinstance(nota, str) else None
+        for chave, qid in (("rt", ROTTEN), ("mc", METACRITIC)):
+            if v is not None and qid in por:
+                out[chave] = max(v, out.get(chave, 0))
+    return out.get("rt"), out.get("mc")
+
+
 def coletar(con, ex, registrar=True):
     linhas = con.execute("SELECT id, wikidata FROM titulos WHERE wikidata IS NOT NULL "
                          "AND (imdb_id IS NULL OR hype IS NULL OR data_eua >= date('now','-30 day'))").fetchall()
@@ -41,8 +55,12 @@ def coletar(con, ex, registrar=True):
             hype = sum(1 for k in ent.get("sitelinks", {}) if k.endswith("wiki") and k != "commonswiki")
             data_br = _data_br(claims)
             com_br += bool(data_br)
+            rt, mc = _criticas(claims)
+            serie = next((c["mainsnak"]["datavalue"]["value"]["id"] for c in claims.get("P179", [])
+                          if c.get("mainsnak", {}).get("datavalue")), None)
             for tid in por_q.get(q, []):
-                db.gravar_titulo(con, dict(id=tid, imdb_id=imdb, hype=hype, data_br=data_br), registrar)
+                db.gravar_titulo(con, dict(id=tid, imdb_id=imdb, hype=hype, data_br=data_br, rt=rt, mc=mc,
+                                           serie_qid=serie), registrar)
                 feitos += 1
         con.commit()
     ex.itens = feitos

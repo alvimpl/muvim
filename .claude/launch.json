@@ -2,9 +2,9 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "muvim",
+      "name": "muvim-site",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["servidor.py"],
+      "runtimeArgs": ["-m", "http.server", "-d", "site", "8790"],
       "port": 8790
     }
   ]

@@ -1,0 +1,76 @@
+# Coleta diária e publicação do site no GitHub Pages.
+# O banco (dados/muvim.db) mora no branch "dados", reescrito a cada coleta, para que
+# "O que mudou" possa comparar com o dia anterior.
+name: Coleta e publicação
+
+on:
+  schedule:
+    - cron: "0 12 * * *"   # 9h em Brasília
+  workflow_dispatch:
+    inputs:
+      grafo:
+        description: "Remontar as ligações agora"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: coleta
+  cancel-in-progress: false
+
+jobs:
+  coletar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Recuperar o banco da coleta anterior
+        run: |
+          mkdir -p dados
+          if git ls-remote --exit-code origin dados >/dev/null; then
+            git fetch --depth=1 origin dados
+            git show origin/dados:muvim.db > dados/muvim.db
+            echo "Banco anterior: $(du -h dados/muvim.db | cut -f1)"
+          else
+            echo "Primeira coleta: banco novo."
+          fi
+
+      - name: Coletar
+        run: |
+          if [ "${{ inputs.grafo }}" = "true" ]; then python coletar.py --grafo; fi
+          python coletar.py
+
+      - name: Gerar o site
+        run: python exportar.py
+
+      - name: Guardar o banco no branch "dados"
+        run: |
+          cd dados
+          git init -q -b dados
+          git add muvim.db
+          git -c user.name="muvim-bot" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "Banco da coleta de $(date -u +%F)"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" dados
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  publicar:
+    needs: coletar
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

@@ -38,16 +38,17 @@ def coletar(con, ex, registrar=True):
             k = show["id"]
             if k not in estreias or e["airdate"] < estreias[k][0]:
                 estreias[k] = (e["airdate"], e["season"], canal)
-    # Séries da lista do usuário também são atualizadas, mesmo sem estreia próxima
-    da_lista = [r[0] for r in con.execute(
-        "SELECT t.tvmaze_id FROM lista l JOIN titulos t ON t.id=l.titulo_id WHERE t.tvmaze_id IS NOT NULL")]
-    ids = list(estreias) + [i for i in da_lista if i not in estreias]
+    # Séries que já estão no banco e estrearam há pouco continuam sendo atualizadas
+    # (episódios novos saem toda semana e alimentam a maratona)
+    recentes = [r[0] for r in con.execute(
+        "SELECT tvmaze_id FROM titulos WHERE tvmaze_id IS NOT NULL AND data_eua >= date('now','-75 day')")]
+    ids = list(estreias) + [i for i in recentes if i not in estreias]
     for sid in ids:
         s = json_de(f"{API}/shows/{sid}", {"embed[]": "cast"})
         s2 = json_de(f"{API}/shows/{sid}/episodes")
         img = s.get("image") or {}
         data, temp, canal = estreias.get(sid, (None, None, None))
-        if data is None:  # da lista: próxima temporada futura, se houver
+        if data is None:  # já no banco: próxima temporada futura, se houver
             fut = [ep for ep in s2 if ep.get("number") == 1 and (ep.get("airdate") or "") >= date.today().isoformat()]
             if fut:
                 data, temp = fut[0]["airdate"], fut[0]["season"]
@@ -56,7 +57,8 @@ def coletar(con, ex, registrar=True):
         db.gravar_titulo(con, dict(
             id=tid, tipo="serie", titulo=s["name"], data_eua=data, temporada=temp, servico=canal,
             generos=s.get("genres") or [], sinopse_en=_sem_html(s.get("summary")),
-            poster_url=img.get("original") or img.get("medium"), imdb_id=(s.get("externals") or {}).get("imdb"),
+            poster_url=img.get("medium") or img.get("original"), imdb_id=(s.get("externals") or {}).get("imdb"),
+            nota_tvmaze=(s.get("rating") or {}).get("average"),
             tvmaze_id=sid, hype=s.get("weight"), estreou=s.get("premiered"),
             n_temporadas=max([ep.get("season") or 0 for ep in s2] or [0])), registrar)
         elenco = [(c["person"]["name"], c["character"]["name"]) for c in s.get("_embedded", {}).get("cast", [])[:12]]

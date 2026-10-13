@@ -1,11 +1,13 @@
 "use strict";
-/* Muvim — interface. Fala com a API local (servidor.py) e desenha as telas por rota (#radar, #titulo/<id>...). */
+/* Muvim — interface estática. Lê os JSON gerados por exportar.py (pasta dados/).
+   Lista, maratona e alertas ficam no navegador (localStorage). As Ligações são calculadas aqui. */
 
 const MES = ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"];
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const dt = s => new Date(s + "T12:00:00");
 const HOJE = new Date(); HOJE.setHours(12, 0, 0, 0);
+const HOJE_ISO = `${HOJE.getFullYear()}-${String(HOJE.getMonth() + 1).padStart(2, "0")}-${String(HOJE.getDate()).padStart(2, "0")}`;
 const dias = s => Math.round((dt(s) - HOJE) / 864e5);
 const fmt = s => s ? `${dt(s).getDate()} ${MES[dt(s).getMonth()]}` : "";
 const fmtAno = s => s ? `${fmt(s)} ${s.slice(0, 4)}` : "";
@@ -14,20 +16,41 @@ const pt = n => Number(n || 0).toLocaleString("pt-BR");
 const nome = t => t.titulo_pt && t.titulo_pt !== t.titulo ? t.titulo_pt : t.titulo;
 const linkT = id => "#titulo/" + encodeURIComponent(id);
 const dataPrinc = t => t.data_br || t.data_eua;
-const juntar = xs => xs.length < 2 ? xs.join("") : xs.slice(0, -1).join(", ") + " e " + xs[xs.length - 1];
 const ondeData = t => t.tipo === "serie" ? "" : t.data_br ? "no Brasil" : "nos EUA";
+const juntar = xs => xs.length < 2 ? xs.join("") : xs.slice(0, -1).join(", ") + " e " + xs[xs.length - 1];
+const normalizar = s => (s || "").normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[-.]/g, " ").replace(/\s+/g, " ").trim();
+const nota = t => t.rt != null ? `<span class="star" title="Rotten Tomatoes">🍅 ${t.rt}%</span>` : t.nota_tvmaze ? `<span class="star" title="Nota do público no TVmaze">★ ${t.nota_tvmaze}</span>` : "";
 
-async function api(caminho, corpo) {
-  const op = corpo ? { method: "POST", headers: { "Content-Type": "application/json", "X-Muvim": "1" }, body: JSON.stringify(corpo) } : {};
-  const r = await fetch(caminho, op);
-  const j = await r.json();
-  if (!r.ok || j.erro) throw new Error(j.erro || r.statusText);
-  return j;
+/* ---------- dados ---------- */
+const cache = {};
+async function carregar(arq) {
+  if (!cache[arq]) cache[arq] = fetch("dados/" + arq).then(r => { if (!r.ok) throw new Error(`${arq}: ${r.status}`); return r.json(); });
+  try { return await cache[arq]; } catch (e) { delete cache[arq]; throw e; }
+}
+let INDICE = null, POR_ID = null;
+async function indice() {
+  if (!INDICE) { INDICE = await carregar("indice.json"); POR_ID = Object.fromEntries(INDICE.map(t => [t.id, t])); }
+  return INDICE;
+}
+
+/* ---------- guardado no navegador ---------- */
+const LS = {
+  get(k, d) { try { return JSON.parse(localStorage.getItem("muvim-" + k)) ?? d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem("muvim-" + k, JSON.stringify(v)); } catch {} },
+};
+const lista = () => LS.get("lista", {});           // { id: { em: "2026-10-13", temp, ep } }
+const naLista = id => id in lista();
+function alternarLista(id) {
+  const l = lista();
+  if (l[id]) delete l[id]; else l[id] = { em: HOJE_ISO };
+  LS.set("lista", l);
+  atualizarSino();
+  return !!l[id];
 }
 
 function render(html) { $("tela").innerHTML = html; }
 function carregando() { render('<div class="carregando">Carregando…</div>'); }
-function falha(e) { render(`<div class="vazio">Não deu para carregar: ${esc(e.message)}. O servidor está rodando?</div>`); }
+function falha(e) { render(`<div class="vazio">Não deu para carregar: ${esc(e.message)}.</div>`); }
 
 /* ---------- peças ---------- */
 function ticket(t) {
@@ -37,65 +60,70 @@ function ticket(t) {
     : t.onde_br ? `<span class="svc">${esc(t.onde_br.join(", "))}</span>Lançamento direto no streaming`
     : `Cinema ${ondeData(t)} · ${esc(t.estudio || "")}`;
   return `<a class="ticket" href="${linkT(t.id)}"><div class="stub"><b class="num">${dd.getDate()}</b><span>${MES[dd.getMonth()]}</span></div>
-  <div class="body"><div style="min-width:0"><h4>${esc(nome(t))}</h4><div class="meta">${meta} ${t.nota_imdb ? `<span class="star">★ ${t.nota_imdb}</span>` : ""}</div></div>${t.poster ? `<img src="${t.poster}" alt="" loading="lazy">` : ""}</div></a>`;
+  <div class="body"><div style="min-width:0"><h4>${esc(nome(t))}</h4><div class="meta">${meta} ${nota(t)}</div></div>${t.poster ? `<img src="${esc(t.poster)}" alt="" loading="lazy">` : ""}</div></a>`;
 }
+function ticketSemData(t) {
+  return `<a class="ticket" href="${linkT(t.id)}"><div class="stub"><b>—</b><span>sem data</span></div><div class="body"><div><h4>${esc(nome(t))}</h4><div class="meta">${t.tipo === "serie" ? esc(t.servico || "Série") : "Filme"}</div></div>${t.poster ? `<img src="${esc(t.poster)}" alt="">` : ""}</div></a>`;
+}
+const cartaoQualquer = t => dataPrinc(t) ? ticket(t) : ticketSemData(t);
 
 function cartaoSerie(s) {
-  return `<a class="scard" href="${linkT(s.id)}"><div class="ph">${s.poster ? `<img src="${s.poster}" alt="" loading="lazy">` : '<div style="aspect-ratio:16/10"></div>'}<span class="cd">${em(s.data_eua)}</span></div>
+  return `<a class="scard" href="${linkT(s.id)}"><div class="ph">${s.poster ? `<img src="${esc(s.poster)}" alt="" loading="lazy">` : '<div style="aspect-ratio:16/10"></div>'}<span class="cd">${em(s.data_eua)}</span></div>
   <div class="in"><div><span class="svc">${esc(s.servico || "")}</span>${s.temporada === 1 ? '<span class="pill new">Série nova</span>' : `<span class="pill ret">Temporada ${s.temporada}</span>`}</div>
   <h4>${esc(nome(s))}</h4><p>${esc(s.sinopse_pt || s.sinopse_en || "")}</p>
-  <div style="font-size:12px;color:var(--muted)">${s.nota_imdb ? `<span class="star">★ ${s.nota_imdb}</span> IMDb · ${pt(s.votos_imdb)} votos` : "Ainda sem nota no IMDb"}</div></div></a>`;
+  <div style="font-size:12px;color:var(--muted)">${s.nota_tvmaze ? `<span class="star">★ ${s.nota_tvmaze}</span> no TVmaze` : "Ainda sem nota"}</div></div></a>`;
 }
 
 /* ---------- Radar ---------- */
 async function vRadar() {
-  const R = await api("/api/radar");
+  const R = await carregar("radar.json");
   const k = R.kpis, ag = R.aguardado;
-  const hojeIso = R.hoje;
   const semanas = R.semanas.map((w, i) => {
-    const atual = hojeIso >= w.inicio && hojeIso <= w.fim;
+    const atual = HOJE_ISO >= w.inicio && HOJE_ISO <= w.fim;
     return `<div class="wk${atual ? " now" : ""}"><div class="wk-h"><b>${fmt(w.inicio)}</b><span>sem ${i + 1}</span></div>
-    <div class="posters">${w.itens.map(x => `<a class="pchip${x.tipo === "serie" ? " tv" : ""}" href="${linkT(x.id)}" title="${esc(nome(x))}"><img src="${x.poster}" alt="${esc(nome(x))}" loading="lazy"><span class="day">${dt(x.data_eua).getDate()}/${dt(x.data_eua).getMonth() + 1}</span></a>`).join("")}</div>
+    <div class="posters">${w.itens.map(x => `<a class="pchip${x.tipo === "serie" ? " tv" : ""}" href="${linkT(x.id)}" title="${esc(nome(x))}"><img src="${esc(x.poster)}" alt="${esc(nome(x))}" loading="lazy"><span class="day">${dt(x.data_eua).getDate()}/${dt(x.data_eua).getMonth() + 1}</span></a>`).join("")}</div>
     <div class="density"><i style="height:${Math.max(3, w.n_filmes * 3)}px"></i><i class="tv" style="height:${Math.max(3, w.n_series * 5)}px"></i><span>${w.n_filmes} filmes<br>${w.n_series} séries</span></div></div>`;
   }).join("");
-  const choques = R.choques.map(c => `<div class="clash"><div class="vs">${c.filmes.map(f => f.poster ? `<a href="${linkT(f.id)}"><img src="${f.poster}" alt="${esc(nome(f))}"></a>` : "").join("<b>×</b>")}</div>
+  const choques = R.choques.filter(c => c.dia >= HOJE_ISO).map(c => `<div class="clash"><div class="vs">${c.filmes.map(f => f.poster ? `<a href="${linkT(f.id)}"><img src="${esc(f.poster)}" alt="${esc(nome(f))}"></a>` : "").join("<b>×</b>")}</div>
     <div><div class="eyebrow" style="color:var(--rose)">Choque de estreias</div><h3>${esc(juntar(c.filmes.map(nome)))} no mesmo dia</h3>
     <p>${c.comuns.length ? `${esc(juntar(c.comuns))} ${c.comuns.length > 1 ? "estão" : "está"} em mais de um deles. ` : ""}${c.filmes.length > 2 ? "Lançamentos grandes" : "Dois lançamentos grandes"} disputando as mesmas salas no mesmo fim de semana.</p></div>
     <div class="date"><b class="num">${dt(c.dia).getDate()}</b><span class="eyebrow">${MES[dt(c.dia).getMonth()]} · EUA</span></div></div>`).join("");
-  const anivs = R.aniversarios.map(a => {
+  const proximos = R.proximos.filter(t => t.data_eua >= HOJE_ISO && dias(t.data_eua) <= 6);
+  // Aniversários só valem no dia em que foram coletados
+  const anivs = R.gerado === HOJE_ISO ? R.aniversarios.map(a => {
     const contexto = a.proximos.length ? `Estreia ${a.proximos.map(p => `<a href="${linkT(p.id)}">${esc(p.titulo)}</a> em ${fmt(p.data_eua)}`).join(" e ")}.`
       : a.conhecido.length ? `Conhecido por ${a.conhecido.map(esc).join(", ")}.` : esc(a.descricao);
     const morto = /died/i.test(a.descricao);
-    return `<div><b class="num">${morto ? "†" : (new Date().getFullYear() - a.ano)}</b><p><strong>${esc(a.nome)}</strong> <span class="muted">· ${a.ano}</span><small>${contexto}</small></p></div>`;
-  }).join("");
+    return `<div><b class="num">${morto ? "†" : (HOJE.getFullYear() - a.ano)}</b><p><strong>${esc(a.nome)}</strong> <span class="muted">· ${a.ano}</span><small>${contexto}</small></p></div>`;
+  }).join("") : "";
   render(`<section class="view">
     <div class="opener"><div><div class="eyebrow">Radar · próximas 12 semanas</div><h1>O que <em>vem aí</em></h1>
-      <p>Estreias de cinema e de temporadas, guardadas no seu PC e atualizadas todo dia.</p>
+      <p>Estreias de cinema e de temporadas, de fontes abertas, atualizadas todo dia.</p>
       <div class="kpis"><div class="kpi"><b class="num">${pt(k.filmes)}</b><span>filmes estreando<br>em 12 semanas</span></div>
       <div class="kpi"><b class="num">${pt(k.series)}</b><span>temporadas<br>chegando</span></div>
       <div class="kpi"><b class="num">${pt(k.pessoas)}</b><span>atores com<br>2+ estreias</span></div>
       <a class="kpi" href="#mudou" style="text-decoration:none"><b class="num">${pt(k.mudancas)}</b><span>mudanças<br>desde ontem</span></a></div></div>
-      ${ag ? `<a class="next" href="${linkT(ag.id)}">${ag.poster ? `<img src="${ag.poster}" alt="">` : ""}<div class="in"><div class="eyebrow">Mais aguardado</div><div class="big num">${dias(ag.data_eua)}</div><div class="eyebrow" style="margin-top:-4px">dias para</div><h3>${esc(nome(ag))}</h3><p>${fmtAno(ag.data_eua)} nos EUA${ag.data_br ? ` · ${fmtAno(ag.data_br)} no Brasil` : ""}. Popularidade medida por quantas Wikipedias já têm artigo: ${ag.hype}.</p></div></a>` : ""}
+      ${ag ? `<a class="next" href="${linkT(ag.id)}">${ag.poster ? `<img src="${esc(ag.poster)}" alt="">` : ""}<div class="in"><div class="eyebrow">Mais aguardado</div><div class="big num">${dias(ag.data_eua)}</div><div class="eyebrow" style="margin-top:-4px">dias para</div><h3>${esc(nome(ag))}</h3><p>${fmtAno(ag.data_eua)} nos EUA${ag.data_br ? ` · ${fmtAno(ag.data_br)} no Brasil` : ""}. Popularidade medida por quantas Wikipedias já têm artigo: ${ag.hype}.</p></div></a>` : ""}
     </div>
     <div><div class="sec-h"><h2>Faixa do tempo</h2><p>Cada coluna é uma semana. A barra embaixo mostra quantas estreias caem nela.</p></div>
       <div class="reel"><div class="reel-in">${semanas}</div></div>
       <div class="legend"><span><i style="background:var(--amber)"></i>Filme (data nos EUA)</span><span><i style="background:var(--teal)"></i>Série (estreia de temporada)</span><span><i style="background:color-mix(in srgb,var(--amber) 30%,transparent)"></i>Semana atual</span></div></div>
     ${choques ? `<div class="clashes">${choques}</div>` : ""}
-    <div class="two"><div><div class="sec-h"><h2>Próximos 7 dias</h2></div><div class="list">${R.esta_semana.map(ticket).join("") || '<div class="vazio">Nada nos próximos 7 dias.</div>'}</div></div>
-      <div><div class="sec-h"><h2>Aniversários hoje</h2></div><div class="bday">${anivs || '<div class="vazio">Sem aniversariantes de cinema na coleta de hoje.</div>'}</div></div></div>
+    <div class="two"><div><div class="sec-h"><h2>Próximos 7 dias</h2></div><div class="list">${proximos.map(ticket).join("") || '<div class="vazio">Nada nos próximos 7 dias.</div>'}</div></div>
+      <div><div class="sec-h"><h2>Aniversários hoje</h2></div><div class="bday">${anivs || '<div class="vazio">Os aniversariantes de hoje entram na próxima coleta.</div>'}</div></div></div>
   </section>`);
 }
 
 /* ---------- Séries ---------- */
 async function vSeries() {
-  const S = await api("/api/series");
-  render(`<section class="view"><div><div class="sec-h"><h2>Temporadas chegando</h2><p>Estreias de temporada nos streamings e na TV brasileira, com nota do IMDb.</p></div>
+  const S = (await carregar("series.json")).filter(s => dias(s.data_eua) >= -3);
+  render(`<section class="view"><div><div class="sec-h"><h2>Temporadas chegando</h2><p>Estreias de temporada nos streamings e na TV brasileira.</p></div>
   <div class="sgrid">${S.map(cartaoSerie).join("") || '<div class="vazio">Nenhuma estreia de temporada na coleta.</div>'}</div></div></section>`);
 }
 
 /* ---------- Pessoas ---------- */
 async function vPessoas() {
-  const P = await api("/api/pessoas");
+  const P = await carregar("pessoas.json");
   const t0 = dt(P.inicio), span = dt(P.fim) - t0;
   const pos = s => ((dt(s) - t0) / span * 100).toFixed(2) + "%";
   const ticks = [];
@@ -113,18 +141,18 @@ async function vPessoas() {
 /* ---------- O que mudou ---------- */
 let filtroMudou = "tudo";
 async function vMudou() {
-  const M = await api("/api/mudancas?dias=14");
-  const campos = [["tudo", "Tudo"], ["data", "Datas"], ["novo", "Novos no radar"], ["nota_imdb", "Notas"], ["onde_br", "Streaming"], ["temporada", "Temporadas"]];
+  const M = await carregar("mudancas.json");
+  const campos = [["tudo", "Tudo"], ["data", "Datas"], ["novo", "Novos no radar"], ["rt", "Crítica"], ["onde_br", "Streaming"], ["temporada", "Temporadas"]];
   const vis = M.filter(m => filtroMudou === "tudo" || m.campo === filtroMudou || (filtroMudou === "data" && m.campo.startsWith("data")));
   const porDia = {};
   vis.forEach(m => (porDia[m.dia] ??= []).push(m));
-  const fmtVal = (c, v) => !v ? "—" : c.startsWith("data") ? fmtAno(v) : c === "onde_br" ? (() => { try { return JSON.parse(v).join(", "); } catch { return v; } })() : v;
+  const fmtVal = (c, v) => !v ? "—" : c.startsWith("data") ? fmtAno(v) : c === "onde_br" ? (() => { try { return JSON.parse(v).join(", "); } catch { return v; } })() : c === "rt" ? v + "%" : v;
   const item = m => {
     const desc = m.campo === "novo" ? `Entrou no radar${m.depois ? ` · estreia ${fmtAno(m.depois)}` : ""}`
       : `${esc(m.rotulo)}: <s>${esc(fmtVal(m.campo, m.antes))}</s> → <b>${esc(fmtVal(m.campo, m.depois))}</b>`;
-    return `<a class="chg" href="${linkT(m.id)}">${m.poster ? `<img src="${m.poster}" alt="" loading="lazy">` : '<div class="ph"></div>'}<div><b>${esc(m.titulo)}</b><div class="muted" style="font-size:13px">${desc}</div></div><span class="tag ${esc(m.campo)}">${esc(m.rotulo)}</span></a>`;
+    return `<a class="chg" href="${linkT(m.id)}">${m.poster ? `<img src="${esc(m.poster)}" alt="" loading="lazy">` : '<div class="ph"></div>'}<div><b>${esc(m.titulo)}</b><div class="muted" style="font-size:13px">${desc}</div></div><span class="tag ${esc(m.campo)}">${esc(m.rotulo)}</span></a>`;
   };
-  render(`<section class="view"><div><div class="sec-h"><h2>O que mudou</h2><p>Últimos 14 dias. Cada coleta compara com a anterior e registra o que mudou.</p></div>
+  render(`<section class="view"><div><div class="sec-h"><h2>O que mudou</h2><p>Últimos 30 dias. Cada coleta compara com a anterior e registra o que mudou.</p></div>
   <div class="filtros">${campos.map(([c, r]) => `<button class="btn small" data-filtro="${c}" aria-pressed="${filtroMudou === c}">${r}</button>`).join("")}</div>
   <div class="feed" style="margin-top:20px">${Object.entries(porDia).map(([d, ms]) => {
     const n = dias(d);
@@ -133,49 +161,96 @@ async function vMudou() {
   document.querySelectorAll("[data-filtro]").forEach(b => b.onclick = () => { filtroMudou = b.dataset.filtro; vMudou(); });
 }
 
-/* ---------- Ligações ---------- */
+/* ---------- Ligações (busca no próprio navegador) ---------- */
+let GRAFO = null;
+async function grafo() {
+  if (GRAFO) return GRAFO;
+  const G = await carregar("grafo.json");
+  const tp = G.t.map(() => []);                  // título -> pessoas
+  G.e.forEach((ts, p) => ts.forEach(t => tp[t].push(p)));
+  // Mais conhecidos primeiro, para o caminho escolhido passar por gente que se reconhece
+  tp.forEach(ps => ps.sort((a, b) => G.p[b][1] - G.p[a][1]));
+  const porNome = new Map();
+  G.p.forEach(([n], i) => { const k = normalizar(n); if (!porNome.has(k)) porNome.set(k, i); });  // já vem por popularidade
+  GRAFO = { ...G, tp, porNome };
+  return GRAFO;
+}
+function caminho(G, a, b, maxPassos = 6) {
+  if (a === b) return [[a, null]];
+  const pais = [new Map([[a, null]]), new Map([[b, null]])];
+  let fr = [[a], [b]];
+  for (let passo = 0; passo < maxPassos; passo++) {
+    const lado = fr[0].length <= fr[1].length ? 0 : 1, outro = 1 - lado;
+    const prox = [], encontros = [];
+    for (const p of fr[lado]) {
+      for (const t of G.e[p]) {               // títulos já vêm do mais popular para o menos
+        for (const q of G.tp[t]) {
+          if (!pais[lado].has(q)) { pais[lado].set(q, [p, t]); prox.push(q); }
+          if (pais[outro].has(q) && !encontros.includes(q)) encontros.push(q);
+        }
+      }
+    }
+    fr[lado] = prox;
+    if (encontros.length) {
+      const m = encontros.reduce((x, y) => G.p[y][1] > G.p[x][1] ? y : x);
+      // De A até o encontro; cada pessoa leva o título que a liga à anterior
+      const ida = [];
+      for (let n = m; n !== undefined;) { ida.push(n); const pai = pais[0].get(n); n = pai ? pai[0] : undefined; }
+      ida.reverse();
+      const res = ida.map((p, i) => [p, i === 0 ? null : pais[0].get(p)[1]]);
+      // Do encontro até B
+      for (let n = m; pais[1].get(n);) { const [pai, t] = pais[1].get(n); res.push([pai, t]); n = pai; }
+      return res;
+    }
+    if (!prox.length) break;
+  }
+  return null;
+}
 let ultimaLigacao = ["Florence Pugh", "Fernanda Torres"];
 async function vLigacoes() {
-  render(`<section class="view"><div><div class="sec-h"><h2>Ligações</h2><p>O caminho mais curto entre duas pessoas: cada passo é um filme ou série em que as duas estão no elenco principal ou na direção (IMDb).</p></div>
+  render(`<section class="view"><div><div class="sec-h"><h2>Ligações</h2><p>O caminho mais curto entre duas pessoas: cada passo é um filme ou série em que as duas estão no elenco ou na direção (Wikidata).</p></div>
   <form class="link-form" id="fl"><label>De<input id="la" list="sug" value="${esc(ultimaLigacao[0])}" autocomplete="off"></label><span class="and">→</span>
   <label>Até<input id="lb" list="sug" value="${esc(ultimaLigacao[1])}" autocomplete="off"></label><button class="btn primary">Ligar</button></form>
-  <datalist id="sug"></datalist><div id="caminho"><div class="carregando">Procurando…</div></div></div></section>`);
-  const sug = async e => { const v = e.target.value; if (v.length < 2) return; try { $("sug").innerHTML = (await api("/api/sugerir-pessoas?q=" + encodeURIComponent(v))).map(n => `<option value="${esc(n)}">`).join(""); } catch {} };
+  <datalist id="sug"></datalist><div id="caminho"><div class="carregando">Carregando o grafo…</div></div></div></section>`);
+  const G = await grafo();
+  const sug = e => {
+    const v = normalizar(e.target.value); if (v.length < 2) return;
+    const achados = []; for (const [k, i] of G.porNome) { if (k.startsWith(v)) achados.push(i); if (achados.length > 300) break; }
+    $("sug").innerHTML = achados.sort((x, y) => G.p[y][1] - G.p[x][1]).slice(0, 8).map(i => `<option value="${esc(G.p[i][0])}">`).join("");
+  };
   $("la").oninput = sug; $("lb").oninput = sug;
-  $("fl").onsubmit = e => { e.preventDefault(); ultimaLigacao = [$("la").value, $("lb").value]; ligar(); };
-  ligar();
+  $("fl").onsubmit = e => { e.preventDefault(); ultimaLigacao = [$("la").value, $("lb").value]; ligar(G); };
+  ligar(G);
 }
-async function ligar() {
-  const [a, b] = ultimaLigacao;
-  $("caminho").innerHTML = '<div class="carregando">Procurando…</div>';
-  try {
-    const R = await api(`/api/conexao?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`);
-    const c = R.caminho;
-    $("caminho").innerHTML = `<div style="display:flex;gap:16px;align-items:baseline;margin-top:28px"><span class="steps num">${R.passos}</span><span class="muted">${R.passos === 1 ? "passo" : "passos"} de ${esc(c[0].pessoa)} até ${esc(c[c.length - 1].pessoa)}</span></div>
-    <div class="path">${c.map((p, i) => `${p.via ? `<span class="via"><span>${esc(p.via)}</span><span class="num">${p.ano || ""}</span></span>` : ""}<span class="p${i === 0 || i === c.length - 1 ? " end" : ""}">${esc(p.pessoa)}</span>`).join("")}</div>`;
-  } catch (e) {
-    $("caminho").innerHTML = `<div class="vazio" style="margin-top:20px">${esc(e.message)}</div>`;
-  }
+function ligar(G) {
+  const [a, b] = ultimaLigacao.map(n => G.porNome.get(normalizar(n)));
+  const falta = a === undefined ? ultimaLigacao[0] : b === undefined ? ultimaLigacao[1] : null;
+  if (falta) { $("caminho").innerHTML = `<div class="vazio" style="margin-top:20px">Não encontrei “${esc(falta)}”. O grafo tem pessoas com artigo em 8 ou mais Wikipedias.</div>`; return; }
+  const c = caminho(G, a, b);
+  if (!c) { $("caminho").innerHTML = '<div class="vazio" style="margin-top:20px">Não achei ligação em até 6 passos.</div>'; return; }
+  const passos = c.length - 1;
+  $("caminho").innerHTML = `<div style="display:flex;gap:16px;align-items:baseline;margin-top:28px"><span class="steps num">${passos}</span><span class="muted">${passos === 1 ? "passo" : "passos"} de ${esc(G.p[c[0][0]][0])} até ${esc(G.p[c[passos][0]][0])}</span></div>
+  <div class="path">${c.map(([p, t], i) => `${t != null ? `<span class="via"><span>${esc(G.t[t][0])}</span><span class="num">${G.t[t][1] || ""}</span></span>` : ""}<span class="p${i === 0 || i === passos ? " end" : ""}">${esc(G.p[p][0])}</span>`).join("")}</div>`;
 }
 
 /* ---------- Minha lista ---------- */
 async function vLista() {
-  const L = await api("/api/lista");
-  render(`<section class="view"><div><div class="sec-h"><h2>Minha lista</h2><p>Você recebe um alerta quando um destes muda de data, ganha onde assistir ou tem episódio novo.</p></div>
-  <div class="list">${L.map(ticketLista).join("") || '<div class="vazio">Sua lista está vazia. Abra um filme ou série e use “+ Quero ver”.</div>'}</div></div></section>`);
-}
-function ticketLista(t) {
-  const d = dataPrinc(t);
-  if (d) return ticket(t);
-  return `<a class="ticket" href="${linkT(t.id)}"><div class="stub"><b>—</b><span>sem data</span></div><div class="body"><div><h4>${esc(nome(t))}</h4><div class="meta">${t.tipo === "serie" ? esc(t.servico || "Série") : "Filme"}</div></div>${t.poster ? `<img src="${t.poster}" alt="">` : ""}</div></a>`;
+  await indice();
+  const L = Object.keys(lista()).map(id => POR_ID[id]).filter(Boolean)
+    .sort((a, b) => (dataPrinc(a) || "9999") < (dataPrinc(b) || "9999") ? -1 : 1);
+  render(`<section class="view"><div><div class="sec-h"><h2>Minha lista</h2><p>Fica guardada neste navegador. O sino avisa quando algo daqui muda de data, entra em streaming ou estreia em breve.</p></div>
+  <div class="list">${L.map(cartaoQualquer).join("") || '<div class="vazio">Sua lista está vazia. Abra um filme ou série e use “+ Quero ver”.</div>'}</div></div></section>`);
 }
 
 /* ---------- Título ---------- */
 async function vTitulo(id) {
-  const T = await api("/api/titulo?id=" + encodeURIComponent(id));
+  await indice();
+  const ent = POR_ID[id];
+  if (!ent) throw new Error("título não encontrado");
+  const T = await carregar(`t/${ent.a}.json`);
   const serie = T.tipo === "serie";
   const sinopse = T.sinopse_pt || T.sinopse_en || "";
-  const fonteSin = T.sinopse_pt ? (T.sinopse_pt_fonte || "") : T.sinopse_en ? "Wikipedia em inglês, sem tradução ainda" : "";
+  const fonteSin = T.sinopse_pt ? (T.sinopse_pt_fonte || "") : T.sinopse_en ? "Wikipedia em inglês" : "";
   const fatos = [
     !serie && T.data_eua && ["Estreia EUA", fmtAno(T.data_eua)],
     T.data_br && ["Estreia Brasil", fmtAno(T.data_br)],
@@ -186,73 +261,73 @@ async function vTitulo(id) {
     T.estudio && ["Estúdio", T.estudio],
     T.generos?.length && ["Gêneros", T.generos.join(", ")],
     serie && T.estreou && ["No ar desde", T.estreou.slice(0, 4)],
-    T.nota_imdb && ["IMDb", `★ ${T.nota_imdb} · ${pt(T.votos_imdb)} votos`],
+    T.rt != null && ["Rotten Tomatoes", `🍅 ${T.rt}%`],
+    T.mc != null && ["Metacritic", `${T.mc}/100`],
+    T.nota_tvmaze && ["Público no TVmaze", `★ ${T.nota_tvmaze}`],
     T.hype && !serie && ["Wikipedias com artigo", T.hype],
   ].filter(Boolean);
   const cruz = {};
-  T.cruzamentos.forEach(c => (cruz[c.id] ??= { ...c, pessoas: [] }).pessoas.push(c.pessoa));
+  (T.cruzamentos || []).forEach(c => (cruz[c.id] ??= { ...c, pessoas: [] }).pessoas.push(c.pessoa));
   const links = [
-    T.imdb_id && `<a class="btn" href="https://www.imdb.com/title/${esc(T.imdb_id)}/" target="_blank" rel="noopener">IMDb ↗</a>`,
     T.wiki_pagina && `<a class="btn" href="https://en.wikipedia.org/wiki/${encodeURIComponent(T.wiki_pagina.replace(/ /g, "_"))}" target="_blank" rel="noopener">Wikipedia ↗</a>`,
+    T.wikidata && `<a class="btn" href="https://www.wikidata.org/wiki/${esc(T.wikidata)}" target="_blank" rel="noopener">Wikidata ↗</a>`,
     T.tvmaze_id && `<a class="btn" href="https://www.tvmaze.com/shows/${T.tvmaze_id}" target="_blank" rel="noopener">TVmaze ↗</a>`,
   ].filter(Boolean).join("");
+  const quer = naLista(T.id);
   render(`<section class="view">
-  <div class="title-hero">${T.poster ? `<img src="${T.poster}" alt="Pôster de ${esc(nome(T))}">` : `<div class="noimg">${esc(nome(T).slice(0, 1))}</div>`}
+  <div class="title-hero">${T.poster ? `<img src="${esc(T.poster)}" alt="Pôster de ${esc(nome(T))}">` : `<div class="noimg">${esc(nome(T).slice(0, 1))}</div>`}
     <div><div class="eyebrow">${serie ? "Série" : "Filme"}${T.data_eua ? ` · ${em(dataPrinc(T))}` : ""}</div>
     <h1>${esc(nome(T))}</h1>${nome(T) !== T.titulo ? `<div class="orig">${esc(T.titulo)}</div>` : ""}
     <div class="sin">${esc(sinopse)}${fonteSin ? `<small>Sinopse: ${esc(fonteSin)}</small>` : ""}</div>
     <div class="facts">${fatos.map(([k, v]) => `<div><span>${k}</span><b>${esc(v)}</b></div>`).join("")}</div>
-    <div class="acts"><button class="btn primary" id="quero" aria-pressed="${T.na_lista}">${T.na_lista ? "✓ Na minha lista" : "+ Quero ver"}</button>${links}</div></div></div>
+    <div class="acts"><button class="btn primary" id="quero" aria-pressed="${quer}">${quer ? "✓ Na minha lista" : "+ Quero ver"}</button>${links}</div></div></div>
   ${serie && T.episodios?.length ? maratonaHTML(T) : ""}
-  ${T.elenco.length ? `<div><div class="sec-h"><h2>Elenco</h2></div><div class="cast">${T.elenco.map(e => `<div><b>${esc(e.pessoa)}</b><span>${esc(e.papel || "")}</span></div>`).join("")}</div></div>` : ""}
-  ${T.curiosidades.length ? `<div><div class="sec-h"><h2>Curiosidades</h2><p>${T.curiosidades[0].gerado_por === "claude" ? "Escritas pelo Claude a partir do artigo" : "Trechos do artigo da Wikipedia, ainda em inglês"}. Cada uma mostra de onde veio.</p></div>
-    <div class="trivia">${T.curiosidades.map(c => `<article>${c.gerado_por === "claude" ? `<h4>${esc(c.titulo)}</h4>` : ""}<p>${esc(c.texto)}</p><div class="src">Fonte: ${esc(c.fonte)}</div></article>`).join("")}</div></div>` : ""}
-  ${T.franquia.length ? `<div><div class="sec-h"><h2>A franquia em notas</h2><p>Títulos com o mesmo nome no IMDb. Âmbar é cinema, verde é TV.</p></div><div class="chart">${graficoFranquia(T.franquia)}</div></div>` : ""}
+  ${T.elenco?.length ? `<div><div class="sec-h"><h2>Elenco</h2></div><div class="cast">${T.elenco.map(e => `<div><b>${esc(e.pessoa)}</b><span>${esc(e.papel || "")}</span></div>`).join("")}</div></div>` : ""}
+  ${T.curiosidades?.length ? `<div><div class="sec-h"><h2>Curiosidades</h2><p>Trechos do artigo da Wikipedia (em inglês). Cada um mostra de onde veio.</p></div>
+    <div class="trivia">${T.curiosidades.map(c => `<article><p>${esc(c.texto)}</p><div class="src">Fonte: ${esc(c.fonte)}</div></article>`).join("")}</div></div>` : ""}
+  ${T.franquia?.length ? `<div><div class="sec-h"><h2>A franquia na crítica</h2><p>Rotten Tomatoes de cada título da franquia, segundo o Wikidata. Âmbar é cinema, verde é TV.</p></div><div class="chart">${graficoFranquia(T.franquia)}</div></div>` : ""}
   ${Object.keys(cruz).length ? `<div><div class="sec-h"><h2>O elenco em outros lançamentos</h2></div><div class="list">${Object.values(cruz).map(c => `<a class="ticket" href="${linkT(c.id)}"><div class="stub"><b class="num">${dt(c.data_eua).getDate()}</b><span>${MES[dt(c.data_eua).getMonth()]}</span></div><div class="body"><div><h4>${esc(c.titulo)}</h4><div class="meta">com ${esc(c.pessoas.join(", "))}</div></div></div></a>`).join("")}</div></div>` : ""}
-  ${T.mudancas.length ? `<div><div class="sec-h"><h2>Histórico</h2><p>O que mudou neste título desde que entrou no radar.</p></div><div class="hist">${T.mudancas.map(m => `<div><span class="num muted">${fmtAno(m.dia)}</span><span>${esc(m.campo)}: <s class="muted">${esc(m.antes)}</s> → ${esc(m.depois)}</span></div>`).join("")}</div></div>` : ""}
+  ${T.mudancas?.length ? `<div><div class="sec-h"><h2>Histórico</h2><p>O que mudou neste título desde que entrou no radar.</p></div><div class="hist">${T.mudancas.map(m => `<div><span class="num muted">${fmtAno(m.dia)}</span><span>${esc(m.campo)}: <s class="muted">${esc(m.antes ?? "—")}</s> → ${esc(m.depois)}</span></div>`).join("")}</div></div>` : ""}
   </section>`);
-  $("quero").onclick = async () => {
-    const r = await api("/api/lista", { id: T.id, acao: T.na_lista ? "remove" : "add" });
-    T.na_lista = r.na_lista;
-    $("quero").setAttribute("aria-pressed", T.na_lista);
-    $("quero").textContent = T.na_lista ? "✓ Na minha lista" : "+ Quero ver";
+  $("quero").onclick = () => {
+    const on = alternarLista(T.id);
+    $("quero").setAttribute("aria-pressed", on);
+    $("quero").textContent = on ? "✓ Na minha lista" : "+ Quero ver";
   };
   if (serie && T.episodios?.length) ligarMaratona(T);
 }
 
 function graficoFranquia(F) {
   const W = Math.max(560, F.length * 120), H = 270, L = 40, R = 16, T = 22, B = 58, bw = (W - L - R) / F.length;
-  const min = Math.max(0, Math.floor(Math.min(...F.map(f => f.nota)) - 1));
-  const y = v => T + (H - T - B) * (1 - (v - min) / (10 - min));
+  const y = v => T + (H - T - B) * (1 - v / 100);
   let g = "";
-  for (let v = min; v <= 10; v++) g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" stroke-dasharray="${v === min ? 0 : 3} 4"/><text x="${L - 8}" y="${y(v) + 4}" text-anchor="end" font-size="11" fill="var(--muted)" font-family="var(--f-mono)">${v}</text>`;
+  for (let v = 0; v <= 100; v += 20) g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" stroke-dasharray="${v === 0 ? 0 : 3} 4"/><text x="${L - 8}" y="${y(v) + 4}" text-anchor="end" font-size="11" fill="var(--muted)" font-family="var(--f-mono)">${v}</text>`;
   F.forEach((f, i) => {
-    const x = L + i * bw + bw * .2, w = bw * .6, top = y(f.nota), cinema = f.tipo === "movie";
+    const x = L + i * bw + bw * .2, w = bw * .6, top = y(f.rt), cinema = f.tipo === "filme";
     const nm = f.nome.length > 18 ? f.nome.slice(0, 17) + "…" : f.nome;
-    const votos = f.votos >= 1e6 ? (f.votos / 1e6).toFixed(2).replace(".", ",") + " mi" : Math.round(f.votos / 1e3) + " mil";
-    g += `<rect x="${x}" y="${top}" width="${w}" height="${y(min) - top}" rx="3" fill="${cinema ? "var(--amber)" : "var(--teal)"}"/>
-    <text x="${x + w / 2}" y="${top - 7}" text-anchor="middle" font-size="14" font-weight="700" fill="var(--fg)" font-family="var(--f-mono)">${f.nota.toFixed(1)}</text>
+    g += `<rect x="${x}" y="${top}" width="${w}" height="${y(0) - top}" rx="3" fill="${cinema ? "var(--amber)" : "var(--teal)"}"/>
+    <text x="${x + w / 2}" y="${top - 7}" text-anchor="middle" font-size="14" font-weight="700" fill="var(--fg)" font-family="var(--f-mono)">${f.rt}%</text>
     <text x="${x + w / 2}" y="${H - B + 18}" text-anchor="middle" font-size="12" font-weight="600" fill="var(--fg)"><title>${esc(f.nome)}</title>${esc(nm)}</text>
     <text x="${x + w / 2}" y="${H - B + 34}" text-anchor="middle" font-size="11" fill="var(--muted)" font-family="var(--f-mono)">${f.ano || ""} · ${cinema ? "filme" : "TV"}</text>
-    <text x="${x + w / 2}" y="${H - B + 49}" text-anchor="middle" font-size="10" fill="var(--faint)" font-family="var(--f-mono)">${votos} votos</text>`;
+    <text x="${x + w / 2}" y="${H - B + 49}" text-anchor="middle" font-size="10" fill="var(--faint)" font-family="var(--f-mono)">${f.mc != null ? `Metacritic ${f.mc}` : ""}</text>`;
   });
-  return `<svg viewBox="0 0 ${W} ${H}" style="min-width:${W}px" role="img" aria-label="Notas do IMDb da franquia">${g}</svg>`;
+  return `<svg viewBox="0 0 ${W} ${H}" style="min-width:${W}px" role="img" aria-label="Rotten Tomatoes da franquia">${g}</svg>`;
 }
 
 /* ---------- Maratona ---------- */
 function maratonaHTML(T) {
-  const temps = [...new Set(T.episodios.map(e => e.temporada))];
-  return `<div><div class="sec-h"><h2>Planejar maratona</h2><p>Quanto falta para ficar em dia${T.data_eua && dias(T.data_eua) > 0 ? ` antes da temporada ${T.temporada}` : ""}.</p></div>
+  const temps = [...new Set(T.episodios.map(e => e[0]))];
+  return `<div><div class="sec-h"><h2>Planejar maratona</h2><p>Quanto falta para ficar em dia${T.data_eua && dias(T.data_eua) > 0 ? ` antes da temporada ${T.temporada}` : ""}. O progresso fica salvo neste navegador.</p></div>
   <div class="marathon"><div class="row"><span>Já vi até</span>
     <select id="mt">${['<option value="0">nada ainda</option>', ...temps.map(t => `<option value="${t}">temporada ${t}</option>`)].join("")}</select>
-    <select id="me"></select>${T.na_lista ? '<button class="btn small" id="msalvar">Salvar</button>' : '<span class="muted" style="font-size:13px">Adicione à lista para guardar o progresso.</span>'}</div>
+    <select id="me"></select></div>
     <div class="seasons" id="mbar" aria-hidden="true"></div><div class="res" id="mres"></div></div></div>`;
 }
 function ligarMaratona(T) {
-  const hoje = new Date().toISOString().slice(0, 10);
-  const alvo = T.data_eua && T.data_eua > hoje ? T.data_eua : null;
-  const eps = T.episodios;
+  const alvo = T.data_eua && T.data_eua > HOJE_ISO ? T.data_eua : null;
+  const eps = T.episodios.map(([temporada, numero, nomeEp, data, duracao]) => ({ temporada, numero, nome: nomeEp, data, duracao }));
   const mt = $("mt"), me = $("me");
+  const progresso = LS.get("maratona", {});
   const preencherEp = () => {
     const t = +mt.value;
     me.innerHTML = t ? eps.filter(e => e.temporada === t).map(e => `<option value="${e.numero}">episódio ${e.numero}</option>`).join("") : "";
@@ -262,7 +337,7 @@ function ligarMaratona(T) {
   const calc = () => {
     const t = +mt.value, n = +me.value || 0;
     const visto = e => t && (e.temporada < t || (e.temporada === t && e.numero <= n));
-    const lancado = e => e.data && e.data <= hoje;
+    const lancado = e => e.data && e.data <= HOJE_ISO;
     const falta = eps.filter(e => lancado(e) && !visto(e) && (!alvo || e.data < alvo));
     const min = falta.reduce((s, e) => s + (e.duracao || 45), 0);
     const h = Math.floor(min / 60), m = min % 60;
@@ -271,40 +346,36 @@ function ligarMaratona(T) {
     $("mres").innerHTML = `<div><b class="num">${falta.length}</b><span>episódios para ver</span></div>
       <div><b class="num">${h}h${String(m).padStart(2, "0")}</b><span>de maratona</span></div>
       ${ate ? `<div><b class="num">${Math.ceil(min / ate)} min</b><span>por dia até ${fmt(alvo)}</span></div>` : ""}`;
+    progresso[T.id] = { temp: t || null, ep: n || null };
+    LS.set("maratona", progresso);
   };
   mt.onchange = () => { preencherEp(); calc(); };
   me.onchange = calc;
-  if (T.assistido && T.assistido.assistido_temp) {
-    mt.value = T.assistido.assistido_temp; preencherEp(); me.value = T.assistido.assistido_ep;
-  } else preencherEp();
+  const salvo = progresso[T.id];
+  if (salvo?.temp) { mt.value = salvo.temp; preencherEp(); me.value = salvo.ep; } else preencherEp();
   calc();
-  const sv = $("msalvar");
-  if (sv) sv.onclick = async () => { await api("/api/lista", { id: T.id, acao: "assistido", temp: +mt.value || null, ep: +me.value || null }); sv.textContent = "Salvo"; };
 }
 
 /* ---------- Bastidores ---------- */
-const NOMES_FONTES = { "wikipedia-listas": "Wikipedia · listas de estreias", "wikipedia-detalhes": "Wikipedia · resumos e pôsteres", wikidata: "Wikidata · IMDb e popularidade",
-  tvmaze: "TVmaze · séries", "imdb-notas": "IMDb · notas", aniversarios: "Wikimedia · aniversários", posteres: "Pôsteres",
-  curiosidades: "Curiosidades por extração", "curadoria-claude": "Curadoria pelo Claude", "imdb-grafo": "IMDb · ligações", alertas: "Alertas" };
+const NOMES_FONTES = { "wikipedia-listas": "Wikipedia · listas de estreias", "wikipedia-detalhes": "Wikipedia · resumos e pôsteres",
+  wikidata: "Wikidata · crítica, popularidade e Brasil", tvmaze: "TVmaze · séries", aniversarios: "Wikimedia · aniversários",
+  curiosidades: "Curiosidades do artigo", grafo: "Wikidata via QLever · ligações" };
 async function vBastidores() {
-  const B = await api("/api/bastidores");
+  const B = await carregar("bastidores.json");
   const c = B.contagens;
   const cartao = f => {
-    const sem = f.fonte === "curadoria-claude" && /sem login|não encontrado/.test(f.mensagem || "");
-    const cls = f.status === "erro" ? "erro" : sem ? "off" : f.status === "rodando" ? "warn" : "ok";
-    const rot = f.status === "erro" ? "Erro" : sem ? "Desligada" : f.status === "rodando" ? "Rodando" : "Ok";
-    return `<article><h4>${esc(NOMES_FONTES[f.fonte] || f.fonte)}<span class="st ${cls}">${rot}</span></h4><div class="big num">${pt(f.itens)}</div>
-      <p>${esc(f.mensagem || "")}</p><p class="num" style="font-size:11px">${esc((f.fim || f.inicio || "").replace("T", " "))}</p></article>`;
+    const cls = f.status === "erro" ? "erro" : "ok";
+    return `<article><h4>${esc(NOMES_FONTES[f.fonte] || f.fonte)}<span class="st ${cls}">${f.status === "erro" ? "Erro" : "Ok"}</span></h4><div class="big num">${pt(f.itens)}</div>
+      <p>${esc(f.mensagem || "")}</p><p class="num" style="font-size:11px">${esc((f.fim || f.inicio || "").replace("T", " "))} UTC</p></article>`;
   };
   render(`<section class="view">
-  <div><div class="sec-h"><h2>No seu banco</h2><p>Última coleta completa: ${B.ultima_coleta ? fmtAno(B.ultima_coleta) : "nenhuma ainda"}${B.coletando ? " · coletando agora…" : ""}</p></div>
-  <div class="counts">${[[c.filmes, "filmes"], [c.series, "séries"], [c.posteres, "pôsteres"], [c.com_pt, "sinopses em português"], [c.curiosidades, "títulos com curiosidades"], [c.episodios, "episódios"], [c.grafo_pessoas, "pessoas no grafo"], [c.mudancas, "mudanças registradas"]]
+  <div><div class="sec-h"><h2>No banco</h2><p>Última coleta: ${B.ultima_coleta ? esc(B.ultima_coleta.replace("T", " ")) + " UTC" : "nenhuma ainda"}</p></div>
+  <div class="counts">${[[c.filmes, "filmes"], [c.series, "séries"], [c.com_pt, "sinopses em português"], [c.com_critica, "com nota da crítica"], [c.curiosidades, "com curiosidades"], [c.episodios, "episódios"], [c.grafo_pessoas, "pessoas no grafo"], [c.mudancas, "mudanças registradas"]]
     .map(([n, r]) => `<div class="kpi"><b class="num">${pt(n)}</b><span>${r}</span></div>`).join("")}</div>
-  <div class="acts" style="margin-top:20px"><button class="btn primary" id="coletar" ${B.coletando ? "disabled" : ""}>${B.coletando ? "Coletando…" : "Atualizar agora"}</button></div></div>
+  <div class="acts" style="margin-top:20px"><a class="btn" href="${esc(B.repositorio)}/actions" target="_blank" rel="noopener">Coletas no GitHub ↗</a><a class="btn" href="${esc(B.repositorio)}" target="_blank" rel="noopener">Código ↗</a></div></div>
   <div><div class="sec-h"><h2>Fontes</h2><p>Resultado da última execução de cada etapa.</p></div><div class="srcs">${B.fontes.filter(f => NOMES_FONTES[f.fonte]).map(cartao).join("") || '<div class="vazio">Nenhuma coleta registrada.</div>'}</div></div>
-  <div class="note">Todas as fontes são abertas e não pedem cadastro. A curadoria pelo Claude é opcional: usa o Claude Code deste PC se ele estiver logado. Sem ela, as curiosidades vêm direto do artigo da Wikipedia.</div>
+  <div class="note">Todas as fontes são abertas e não pedem cadastro: Wikipedia, Wikidata (pelo QLever), TVmaze e Wikimedia. A coleta roda uma vez por dia no GitHub Actions e o site é publicado no GitHub Pages. Pôsteres são exibidos direto da Wikipedia e do TVmaze.</div>
   </section>`);
-  $("coletar").onclick = async () => { await api("/api/coletar", {}); $("coletar").textContent = "Coletando…"; $("coletar").disabled = true; };
 }
 
 /* ---------- busca e alertas (gaveta) ---------- */
@@ -316,27 +387,52 @@ $("painel").addEventListener("click", e => { if (e.target.closest("a[href^='#']"
 
 $("busca").onsubmit = async e => {
   e.preventDefault();
-  const q = $("q").value.trim();
+  const q = normalizar($("q").value);
   if (!q) return;
-  const R = await api("/api/busca?q=" + encodeURIComponent(q));
-  gaveta(`<div class="eyebrow">Busca</div><h3>“${esc(q)}”</h3>
-  ${R.titulos.length ? `<div class="list">${R.titulos.map(t => dataPrinc(t) ? ticket(t) : ticketLista(t)).join("")}</div>` : ""}
-  ${R.pessoas.map(p => `<h3 style="font-size:24px;margin-top:22px">${esc(p.pessoa)}</h3><div class="list">${p.titulos.map(t => dataPrinc(t) ? ticket(t) : ticketLista(t)).join("")}</div>`).join("")}
-  ${!R.titulos.length && !R.pessoas.length ? `<p class="muted">Nada no banco local com esse nome. Para ligar duas pessoas quaisquer, use <a href="#ligacoes">Ligações</a>.</p>` : ""}`);
+  const I = await indice();
+  const tits = I.filter(t => normalizar(t.titulo).includes(q) || normalizar(t.titulo_pt).includes(q)).slice(0, 20);
+  const pessoas = {};
+  I.forEach(t => (t.e || []).forEach(p => { if (normalizar(p).includes(q)) (pessoas[p] ??= []).push(t); }));
+  gaveta(`<div class="eyebrow">Busca</div><h3>“${esc($("q").value)}”</h3>
+  ${tits.length ? `<div class="list">${tits.map(cartaoQualquer).join("")}</div>` : ""}
+  ${Object.entries(pessoas).slice(0, 8).map(([p, ts]) => `<h3 style="font-size:24px;margin-top:22px">${esc(p)}</h3><div class="list">${ts.map(cartaoQualquer).join("")}</div>`).join("")}
+  ${!tits.length && !Object.keys(pessoas).length ? `<p class="muted">Nada no radar com esse nome. Para ligar duas pessoas quaisquer, use <a href="#ligacoes">Ligações</a>.</p>` : ""}`);
 };
 
+/* Alertas: calculados aqui, a partir da lista do navegador e das mudanças publicadas */
+async function alertas() {
+  const l = lista(), ids = Object.keys(l);
+  if (!ids.length) return [];
+  const [I, M] = await Promise.all([indice(), carregar("mudancas.json").catch(() => [])]);
+  const out = [];
+  for (const m of M) {
+    if (!(m.id in l) || m.campo === "novo" || m.dia < l[m.id].em) continue;
+    const v = x => !x ? "—" : m.campo.startsWith("data") ? fmtAno(x) : x;
+    out.push({ k: `m:${m.id}:${m.campo}:${m.depois}`, id: m.id, quando: m.dia, txt: `${m.titulo}: ${m.rotulo.toLowerCase()} ${v(m.antes)} → ${v(m.depois)}` });
+  }
+  for (const id of ids) {
+    const t = POR_ID[id]; if (!t) continue;
+    const d = dataPrinc(t);
+    if (d && dias(d) >= 0 && dias(d) <= 7) {
+      const txt = t.tipo === "serie" ? `${nome(t)}: temporada ${t.temporada} estreia ${em(d)} (${fmt(d)}, ${t.servico || ""})` : `${nome(t)} estreia ${em(d)} ${ondeData(t)} (${fmt(d)})`;
+      out.push({ k: `e:${id}:${d}`, id, quando: HOJE_ISO, txt });
+    }
+  }
+  return out.sort((a, b) => a.quando < b.quando ? 1 : -1);
+}
 async function atualizarSino() {
-  try {
-    const A = await api("/api/alertas");
-    const n = A.filter(a => !a.lido).length;
-    $("sino-n").hidden = !n; $("sino-n").textContent = n;
-    return A;
-  } catch { return []; }
+  const A = await alertas();
+  const vistos = new Set(LS.get("alertas-vistos", []));
+  const n = A.filter(a => !vistos.has(a.k)).length;
+  $("sino-n").hidden = !n; $("sino-n").textContent = n;
+  return A;
 }
 $("sino").onclick = async () => {
   const A = await atualizarSino();
-  gaveta(`<div class="eyebrow">Minha lista</div><h3>Alertas</h3>${A.map(a => `<a class="alert${a.lido ? "" : " novo"}" href="${linkT(a.titulo_id)}" style="text-decoration:none"><b>${esc(a.texto)}</b><small>${esc(a.criado_em.replace("T", " "))}</small></a>`).join("") || '<p class="muted">Nenhum alerta. Eles aparecem quando algo da sua lista muda.</p>'}`);
-  if (A.some(a => !a.lido)) { await api("/api/alertas/lidos", {}); atualizarSino(); }
+  const vistos = new Set(LS.get("alertas-vistos", []));
+  gaveta(`<div class="eyebrow">Minha lista</div><h3>Alertas</h3>${A.map(a => `<a class="alert${vistos.has(a.k) ? "" : " novo"}" href="${linkT(a.id)}" style="text-decoration:none"><b>${esc(a.txt)}</b><small>${fmtAno(a.quando)}</small></a>`).join("") || '<p class="muted">Nenhum alerta. Eles aparecem quando algo da sua lista muda ou está para estrear.</p>'}`);
+  LS.set("alertas-vistos", [...new Set([...vistos, ...A.map(a => a.k)])].slice(-500));
+  atualizarSino();
 };
 
 /* ---------- rotas ---------- */
@@ -352,7 +448,7 @@ async function navegar() {
     else await (ROTAS[rota] || vRadar)();
   } catch (e) { falha(e); }
 }
-$("today").textContent = new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+$("today").textContent = HOJE.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 addEventListener("hashchange", navegar);
 navegar();
 atualizarSino();

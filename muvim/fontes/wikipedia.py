@@ -197,10 +197,9 @@ def baixar_artigos(con, limite=25):
     """Guarda o texto completo dos filmes que estreiam nos próximos 120 dias (por ordem de interesse)."""
     pend = con.execute(
         "SELECT t.id, t.wiki_pagina FROM titulos t LEFT JOIN artigos a ON a.titulo_id=t.id "
-        "LEFT JOIN lista l ON l.titulo_id=t.id "
         "WHERE t.tipo='filme' AND t.wiki_pagina IS NOT NULL AND t.data_eua BETWEEN date('now','-30 day') AND date('now','+120 day') "
         "AND (a.titulo_id IS NULL OR date(a.buscado_em) < date('now','-14 day')) "
-        "ORDER BY l.titulo_id IS NULL, COALESCE(t.hype,0) DESC LIMIT ?", (limite,)).fetchall()
+        "ORDER BY COALESCE(t.hype,0) DESC LIMIT ?", (limite,)).fetchall()
     for r in pend:
         d = json_de(API_EN, dict(action="query", prop="extracts", explaintext=1, redirects=1,
                                  format="json", formatversion=2, titles=r["wiki_pagina"]))
@@ -226,7 +225,7 @@ def _secoes(texto):
 
 def extrair_curiosidades(con, ex):
     """Escolhe frases com 'cara de curiosidade' das seções de produção. Fica em inglês;
-    a curadoria do Claude, quando disponível, substitui por versões em português."""
+    o artigo em português raramente tem seções de produção tão detalhadas."""
     n_art = baixar_artigos(con)
     alvos = con.execute("SELECT a.titulo_id, a.texto FROM artigos a WHERE NOT EXISTS "
                         "(SELECT 1 FROM curiosidades c WHERE c.titulo_id=a.titulo_id)").fetchall()

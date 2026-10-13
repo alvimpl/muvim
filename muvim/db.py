@@ -22,14 +22,15 @@ CREATE TABLE IF NOT EXISTS titulos(
   sinopse_en TEXT,
   sinopse_pt TEXT,
   sinopse_pt_fonte TEXT,
-  poster TEXT,                    -- nome do arquivo em dados/posteres
-  poster_url TEXT,
+  poster_url TEXT,                -- imagem servida direto da Wikipedia/TVmaze (não copiamos)
   wiki_pagina TEXT,
   wikidata TEXT,
   imdb_id TEXT,
   tvmaze_id INTEGER,
-  nota_imdb REAL,
-  votos_imdb INTEGER,
+  rt INTEGER,                     -- Rotten Tomatoes, % (via Wikidata)
+  mc INTEGER,                     -- Metacritic, 0-100 (via Wikidata)
+  nota_tvmaze REAL,               -- série: nota do público no TVmaze (0-10)
+  serie_qid TEXT,                 -- franquia no Wikidata (P179)
   hype INTEGER,                   -- filmes: nº de Wikipedias com artigo; séries: peso do TVmaze
   estreou TEXT,                   -- série: data da estreia original
   n_temporadas INTEGER,
@@ -37,7 +38,6 @@ CREATE TABLE IF NOT EXISTS titulos(
   atualizado_em TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_titulos_data ON titulos(data_eua);
-CREATE INDEX IF NOT EXISTS ix_titulos_imdb ON titulos(imdb_id);
 
 CREATE TABLE IF NOT EXISTS elenco(
   titulo_id TEXT, pessoa TEXT, papel TEXT, ordem INTEGER,
@@ -66,17 +66,6 @@ CREATE TABLE IF NOT EXISTS mudancas(
 );
 CREATE INDEX IF NOT EXISTS ix_mudancas_dia ON mudancas(dia);
 
-CREATE TABLE IF NOT EXISTS lista(
-  titulo_id TEXT PRIMARY KEY, adicionado_em TEXT,
-  assistido_temp INTEGER, assistido_ep INTEGER   -- até onde a série já foi vista
-);
-
-CREATE TABLE IF NOT EXISTS alertas(
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  criado_em TEXT, titulo_id TEXT, texto TEXT, lido INTEGER DEFAULT 0,
-  UNIQUE(titulo_id, texto)
-);
-
 CREATE TABLE IF NOT EXISTS aniversarios(
   dia TEXT, ano INTEGER, nome TEXT, descricao TEXT, pagina TEXT,
   PRIMARY KEY(dia, nome)
@@ -87,18 +76,20 @@ CREATE TABLE IF NOT EXISTS execucoes(
   fonte TEXT, inicio TEXT, fim TEXT, status TEXT, itens INTEGER, mensagem TEXT
 );
 
--- Grafo de ligações entre pessoas (IMDb, títulos mais conhecidos de cada pessoa)
-CREATE TABLE IF NOT EXISTS g_pessoas(nconst TEXT PRIMARY KEY, nome TEXT, nome_busca TEXT, peso INTEGER);
+-- Grafo de ligações (Wikidata via QLever): pessoa -(elenco ou direção)- título
+CREATE TABLE IF NOT EXISTS g_titulos(qid TEXT PRIMARY KEY, nome TEXT, nome_pt TEXT, ano INTEGER, tipo TEXT,
+  pop INTEGER, rt INTEGER, mc INTEGER, serie TEXT, serie_nome TEXT);
+CREATE INDEX IF NOT EXISTS ix_gt_serie ON g_titulos(serie);
+CREATE TABLE IF NOT EXISTS g_pessoas(qid TEXT PRIMARY KEY, nome TEXT, nome_busca TEXT, pop INTEGER);
 CREATE INDEX IF NOT EXISTS ix_gp_nome ON g_pessoas(nome_busca);
-CREATE TABLE IF NOT EXISTS g_titulos(tconst TEXT PRIMARY KEY, nome TEXT, ano INTEGER, tipo TEXT, votos INTEGER, nota REAL);
-CREATE TABLE IF NOT EXISTS g_arestas(nconst TEXT, tconst TEXT, PRIMARY KEY(nconst, tconst));
-CREATE INDEX IF NOT EXISTS ix_ga_t ON g_arestas(tconst);
+CREATE TABLE IF NOT EXISTS g_arestas(pessoa TEXT, titulo TEXT, PRIMARY KEY(pessoa, titulo));
+CREATE INDEX IF NOT EXISTS ix_ga_t ON g_arestas(titulo);
 
 CREATE TABLE IF NOT EXISTS meta(chave TEXT PRIMARY KEY, valor TEXT);
 """
 
 # Campos cuja mudança vira notícia em "O que mudou"
-VIGIADOS = ("data_eua", "data_br", "temporada", "onde_br", "nota_imdb", "titulo_pt")
+VIGIADOS = ("data_eua", "data_br", "temporada", "onde_br", "rt", "titulo_pt")
 # Nestes, aparecer pela primeira vez já é notícia (ex.: o filme ganhou data no Brasil)
 NOVIDADE_DO_ZERO = ("data_br", "data_eua")
 
@@ -115,10 +106,6 @@ def conectar():
     if not _preparado:
         con.execute("PRAGMA journal_mode=WAL")
         con.executescript(ESQUEMA)
-        # Migrações simples: colunas que entraram depois da primeira versão do banco
-        cols = {r[1] for r in con.execute("PRAGMA table_info(g_titulos)")}
-        if "nota" not in cols:
-            con.execute("ALTER TABLE g_titulos ADD COLUMN nota REAL")
         con.commit()
         _preparado = True
     return con
@@ -140,8 +127,8 @@ def meta(con, chave, valor=None):
 
 
 def _igual(campo, a, b):
-    if campo == "nota_imdb" and a is not None and b is not None:
-        return abs(float(a) - float(b)) < 0.1
+    if campo == "rt" and a is not None and b is not None:
+        return abs(int(a) - int(b)) < 1
     return (a if a not in ("", None) else None) == (b if b not in ("", None) else None)
 
 
