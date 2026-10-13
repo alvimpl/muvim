@@ -21,6 +21,14 @@ powershell -ExecutionPolicy Bypass -File scripts\instalar-agendamento.ps1
 
 `scripts\desinstalar-agendamento.ps1` remove as tarefas.
 
+Atalho na área de trabalho, com o ícone do letreiro (`scripts\criar-icone.py` redesenha o ícone):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\criar-atalho.ps1
+```
+
+O atalho roda `abrir.pyw`: se o servidor estiver parado, ele sobe antes de abrir o site.
+
 ## Fontes
 
 | Fonte | O que traz | Conta |

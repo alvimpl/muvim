@@ -332,6 +332,8 @@ class App(BaseHTTPRequestHandler):
         cam = unquote(u.path)
         if cam in ("/", "/index.html"):
             return self._arquivo(WEB, "index.html")
+        if cam == "/favicon.ico":
+            return self._arquivo(WEB, "muvim.ico", cache="max-age=604800")
         if cam.startswith("/web/"):
             return self._arquivo(WEB, cam[5:])
         if cam.startswith("/posteres/"):
