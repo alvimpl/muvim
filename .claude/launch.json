@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "muvim",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["servidor.py"],
+      "port": 8790
+    }
+  ]
+}
