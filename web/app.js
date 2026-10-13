@@ -21,6 +21,29 @@ const juntar = xs => xs.length < 2 ? xs.join("") : xs.slice(0, -1).join(", ") + 
 const normalizar = s => (s || "").normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[-.]/g, " ").replace(/\s+/g, " ").trim();
 const nota = t => t.rt != null ? `<span class="star" title="Rotten Tomatoes">🍅 ${t.rt}%</span>` : t.nota_tvmaze ? `<span class="star" title="Nota do público no TVmaze">★ ${t.nota_tvmaze}</span>` : "";
 
+/* ---------- idioma dos textos (PT traduz pelo tradutor do Muvim; EN mostra o original) ---------- */
+const idioma = () => { try { return localStorage.getItem("muvim-idioma") || "pt"; } catch { return "pt"; } };
+const GENEROS = { Drama: "Drama", Comedy: "Comédia", Crime: "Crime", Thriller: "Suspense", Action: "Ação", "Science-Fiction": "Ficção científica",
+  Anime: "Anime", Mystery: "Mistério", Fantasy: "Fantasia", Horror: "Terror", Romance: "Romance", Family: "Família", Adventure: "Aventura",
+  Documentary: "Documentário", Music: "Música", History: "História", War: "Guerra", Western: "Faroeste", Sports: "Esportes", Medical: "Médica",
+  Legal: "Jurídica", Supernatural: "Sobrenatural", Children: "Infantil", Espionage: "Espionagem", Food: "Culinária", Travel: "Viagem",
+  Nature: "Natureza", DIY: "Faça você mesmo", Reality: "Reality" };
+const SECOES = { Production: "Produção", Development: "Desenvolvimento", "Pre-production": "Pré-produção", Casting: "Elenco", Filming: "Filmagem",
+  "Principal photography": "Filmagem", "Post-production": "Pós-produção", Music: "Música", "Visual effects": "Efeitos visuais",
+  Release: "Lançamento", Marketing: "Divulgação", "Box office": "Bilheteria", Design: "Direção de arte" };
+const generos = gs => idioma() === "pt" ? gs.map(g => GENEROS[g] || g) : gs;
+const fonteTxt = f => idioma() === "pt" ? f.replace(/· (.+)$/, (m, sec) => "· " + (SECOES[sec] || sec)) : f;
+/** [texto, de onde veio] da sinopse no idioma escolhido */
+function sinopseDe(t) {
+  if (idioma() === "en") {
+    if (t.sinopse_en) return [t.sinopse_en, t.tipo === "serie" ? "TVmaze" : "Wikipedia em inglês"];
+    return [t.sinopse_pt || "", t.sinopse_pt_fonte || ""];
+  }
+  if (t.sinopse_pt) return [t.sinopse_pt, t.sinopse_pt_fonte || ""];
+  if (t.sinopse_auto) return [t.sinopse_auto, "tradução automática do Muvim"];
+  return [t.sinopse_en || "", t.sinopse_en ? "original em inglês, tradução na próxima coleta" : ""];
+}
+
 /* ---------- dados ---------- */
 const cache = {};
 async function carregar(arq) {
@@ -70,7 +93,7 @@ const cartaoQualquer = t => dataPrinc(t) ? ticket(t) : ticketSemData(t);
 function cartaoSerie(s) {
   return `<a class="scard" href="${linkT(s.id)}"><div class="ph">${s.poster ? `<img src="${esc(s.poster)}" alt="" loading="lazy">` : '<div style="aspect-ratio:16/10"></div>'}<span class="cd">${em(s.data_eua)}</span></div>
   <div class="in"><div><span class="svc">${esc(s.servico || "")}</span>${s.temporada === 1 ? '<span class="pill new">Série nova</span>' : `<span class="pill ret">Temporada ${s.temporada}</span>`}</div>
-  <h4>${esc(nome(s))}</h4><p>${esc(s.sinopse_pt || s.sinopse_en || "")}</p>
+  <h4>${esc(nome(s))}</h4><p>${esc(sinopseDe(s)[0])}</p>
   <div style="font-size:12px;color:var(--muted)">${s.nota_tvmaze ? `<span class="star">★ ${s.nota_tvmaze}</span> no TVmaze` : "Ainda sem nota"}</div></div></a>`;
 }
 
@@ -92,7 +115,7 @@ async function vRadar() {
   // Aniversários só valem no dia em que foram coletados
   const anivs = R.gerado === HOJE_ISO ? R.aniversarios.map(a => {
     const contexto = a.proximos.length ? `Estreia ${a.proximos.map(p => `<a href="${linkT(p.id)}">${esc(p.titulo)}</a> em ${fmt(p.data_eua)}`).join(" e ")}.`
-      : a.conhecido.length ? `Conhecido por ${a.conhecido.map(esc).join(", ")}.` : esc(a.descricao);
+      : a.conhecido.length ? `Conhecido por ${a.conhecido.map(esc).join(", ")}.` : esc(idioma() === "pt" && a.descricao_pt ? a.descricao_pt : a.descricao);
     const morto = /died/i.test(a.descricao);
     return `<div><b class="num">${morto ? "†" : (HOJE.getFullYear() - a.ano)}</b><p><strong>${esc(a.nome)}</strong> <span class="muted">· ${a.ano}</span><small>${contexto}</small></p></div>`;
   }).join("") : "";
@@ -249,8 +272,7 @@ async function vTitulo(id) {
   if (!ent) throw new Error("título não encontrado");
   const T = await carregar(`t/${ent.a}.json`);
   const serie = T.tipo === "serie";
-  const sinopse = T.sinopse_pt || T.sinopse_en || "";
-  const fonteSin = T.sinopse_pt ? (T.sinopse_pt_fonte || "") : T.sinopse_en ? "Wikipedia em inglês" : "";
+  const [sinopse, fonteSin] = sinopseDe(T);
   const fatos = [
     !serie && T.data_eua && ["Estreia EUA", fmtAno(T.data_eua)],
     T.data_br && ["Estreia Brasil", fmtAno(T.data_br)],
@@ -259,7 +281,7 @@ async function vTitulo(id) {
     T.onde_br && ["Lançamento direto em", T.onde_br.join(", ")],
     T.direcao && ["Direção", T.direcao],
     T.estudio && ["Estúdio", T.estudio],
-    T.generos?.length && ["Gêneros", T.generos.join(", ")],
+    T.generos?.length && ["Gêneros", generos(T.generos).join(", ")],
     serie && T.estreou && ["No ar desde", T.estreou.slice(0, 4)],
     T.rt != null && ["Rotten Tomatoes", `🍅 ${T.rt}%`],
     T.mc != null && ["Metacritic", `${T.mc}/100`],
@@ -283,8 +305,8 @@ async function vTitulo(id) {
     <div class="acts"><button class="btn primary" id="quero" aria-pressed="${quer}">${quer ? "✓ Na minha lista" : "+ Quero ver"}</button>${links}</div></div></div>
   ${serie && T.episodios?.length ? maratonaHTML(T) : ""}
   ${T.elenco?.length ? `<div><div class="sec-h"><h2>Elenco</h2></div><div class="cast">${T.elenco.map(e => `<div><b>${esc(e.pessoa)}</b><span>${esc(e.papel || "")}</span></div>`).join("")}</div></div>` : ""}
-  ${T.curiosidades?.length ? `<div><div class="sec-h"><h2>Curiosidades</h2><p>Trechos do artigo da Wikipedia (em inglês). Cada um mostra de onde veio.</p></div>
-    <div class="trivia">${T.curiosidades.map(c => `<article><p>${esc(c.texto)}</p><div class="src">Fonte: ${esc(c.fonte)}</div></article>`).join("")}</div></div>` : ""}
+  ${T.curiosidades?.length ? `<div><div class="sec-h"><h2>Curiosidades</h2><p>${idioma() === "pt" ? "Trechos do artigo da Wikipedia, em tradução automática" : "Trechos do artigo da Wikipedia"}. Cada um mostra de onde veio.</p></div>
+    <div class="trivia">${T.curiosidades.map(c => `<article><p>${esc(idioma() === "pt" && c.texto_pt ? c.texto_pt : c.texto)}</p><div class="src">Fonte: ${esc(fonteTxt(c.fonte))}</div></article>`).join("")}</div></div>` : ""}
   ${T.franquia?.length ? `<div><div class="sec-h"><h2>A franquia na crítica</h2><p>Rotten Tomatoes de cada título da franquia, segundo o Wikidata. Âmbar é cinema, verde é TV.</p></div><div class="chart">${graficoFranquia(T.franquia)}</div></div>` : ""}
   ${Object.keys(cruz).length ? `<div><div class="sec-h"><h2>O elenco em outros lançamentos</h2></div><div class="list">${Object.values(cruz).map(c => `<a class="ticket" href="${linkT(c.id)}"><div class="stub"><b class="num">${dt(c.data_eua).getDate()}</b><span>${MES[dt(c.data_eua).getMonth()]}</span></div><div class="body"><div><h4>${esc(c.titulo)}</h4><div class="meta">com ${esc(c.pessoas.join(", "))}</div></div></div></a>`).join("")}</div></div>` : ""}
   ${T.mudancas?.length ? `<div><div class="sec-h"><h2>Histórico</h2><p>O que mudou neste título desde que entrou no radar.</p></div><div class="hist">${T.mudancas.map(m => `<div><span class="num muted">${fmtAno(m.dia)}</span><span>${esc(m.campo)}: <s class="muted">${esc(m.antes ?? "—")}</s> → ${esc(m.depois)}</span></div>`).join("")}</div></div>` : ""}
@@ -443,6 +465,16 @@ async function navegar() {
 }
 $("today").textContent = HOJE.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 addEventListener("hashchange", navegar);
+function pintarIdioma() {
+  document.querySelectorAll("#idioma button").forEach(b => b.setAttribute("aria-pressed", b.dataset.lang === idioma()));
+  document.documentElement.lang = idioma() === "pt" ? "pt-BR" : "en";
+}
+document.querySelectorAll("#idioma button").forEach(b => b.onclick = () => {
+  try { localStorage.setItem("muvim-idioma", b.dataset.lang); } catch {}
+  pintarIdioma();
+  navegar();
+});
+pintarIdioma();
 navegar();
 atualizarSino();
 rodape();

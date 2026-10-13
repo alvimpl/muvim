@@ -1,0 +1,3 @@
+# Só para o tradutor; o resto usa a biblioteca padrão
+ctranslate2>=4.5
+sentencepiece>=0.2

@@ -7,12 +7,19 @@ import shutil
 from collections import defaultdict
 from datetime import date, timedelta
 
-from muvim import db
+from muvim import db, traducao
 from muvim.config import REPOSITORIO, SITE, WEB
 from muvim.texto import nome_arquivo, normalizar
 
 CARTAO = ("id,tipo,titulo,titulo_pt,data_eua,data_br,temporada,servico,estudio,direcao,poster_url,rt,mc,"
           "nota_tvmaze,hype,sinopse_pt,sinopse_en,generos,onde_br,n_temporadas,estreou")
+
+
+TR = {}  # traduções automáticas: hash do texto em inglês -> português
+
+
+def tr(texto):
+    return TR.get(traducao.chave(texto)) if texto else None
 
 
 def linhas(cur):
@@ -27,6 +34,8 @@ def _cartao(t):
             except (TypeError, json.JSONDecodeError):
                 pass
     t["poster"] = t.pop("poster_url", None)
+    if not t.get("sinopse_pt") and t.get("sinopse_en"):
+        t["sinopse_auto"] = tr(t["sinopse_en"])
     return {k: v for k, v in t.items() if v not in (None, "", [])}
 
 
@@ -109,7 +118,7 @@ def aniversarios(con):
         conhecido = [r[0] for r in con.execute(
             "SELECT COALESCE(t.nome_pt, t.nome) FROM g_arestas a JOIN g_titulos t ON t.qid=a.titulo WHERE a.pessoa=? "
             "ORDER BY t.pop DESC LIMIT 3", (g[0],))] if g else []
-        a.update(proximos=prox, conhecido=conhecido, peso=g[1] if g else 0)
+        a.update(proximos=prox, conhecido=conhecido, peso=g[1] if g else 0, descricao_pt=tr(a["descricao"]))
         out.append(a)
     out.sort(key=lambda a: (-bool(a["proximos"]), -a["peso"], -(a["ano"] or 0)))
     return out[:8]
@@ -140,6 +149,8 @@ def titulo(con, tid):
         t.pop(k, None)
     t["elenco"] = linhas(con.execute("SELECT pessoa, papel FROM elenco WHERE titulo_id=? ORDER BY ordem", (tid,)))
     t["curiosidades"] = linhas(con.execute("SELECT titulo, texto, fonte, gerado_por FROM curiosidades WHERE titulo_id=? ORDER BY ordem", (tid,)))
+    for c in t["curiosidades"]:
+        c["texto_pt"] = tr(c["texto"])
     t["mudancas"] = linhas(con.execute("SELECT dia, campo, antes, depois FROM mudancas WHERE titulo_id=? AND campo<>'novo' ORDER BY id DESC LIMIT 20", (tid,)))
     t["cruzamentos"] = linhas(con.execute(
         "SELECT e2.pessoa, t2.id, t2.titulo, t2.data_eua FROM elenco e1 JOIN elenco e2 ON e1.pessoa=e2.pessoa AND e2.titulo_id<>e1.titulo_id "
@@ -226,6 +237,7 @@ def bastidores(con):
 
 def main():
     con = db.conectar()
+    TR.update(traducao.mapa(con))
     if SITE.exists():
         shutil.rmtree(SITE)
     shutil.copytree(WEB, SITE)

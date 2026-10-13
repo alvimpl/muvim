@@ -29,6 +29,14 @@ Site estático publicado no GitHub Pages e atualizado uma vez por dia pelo GitHu
 | TVmaze | Estreias de temporada, elenco, episódios, nota do público |
 | Wikimedia “neste dia” | Aniversariantes de cinema |
 
+### Tradução
+
+Sinopses, curiosidades e descrições que só existem em inglês são traduzidas por um tradutor
+próprio que roda na coleta: o modelo aberto inglês→português do Brasil do
+[Argos Translate](https://github.com/argosopentech/argos-translate) (MIT), executado com CTranslate2.
+Não usa API externa nem cadastro. Cada texto é traduzido uma vez e guardado no banco.
+No site, o seletor **PT / EN** alterna entre a tradução e o original.
+
 Pôsteres são exibidos direto da Wikipedia e do TVmaze; o Muvim não os copia.
 A data de estreia no Brasil depende de alguém tê-la cadastrado no Wikidata, o que ainda é raro;
 quando falta, vale a data dos EUA, sempre identificada como tal.
@@ -56,7 +64,7 @@ python exportar.py
 python -m http.server -d site 8790
 ```
 
-Só usa a biblioteca padrão do Python (3.12 ou mais novo).
+Usa a biblioteca padrão do Python (3.12 ou mais novo), mais `pip install -r requirements.txt` para o tradutor.
 
 ## Estrutura
 

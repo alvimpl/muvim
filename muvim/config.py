@@ -7,6 +7,7 @@ BANCO = DADOS / "muvim.db"
 LOGS = DADOS / "logs"
 WEB = RAIZ / "web"              # fonte da interface
 SITE = RAIZ / "site"            # site estático gerado por exportar.py
+MODELOS = RAIZ / "modelos"      # modelo de tradução (baixado na primeira vez; fora do git)
 
 REPOSITORIO = "https://github.com/alvimpl/muvim"
 USER_AGENT = f"Muvim/2.0 (catalogo de filmes e series; {REPOSITORIO})"

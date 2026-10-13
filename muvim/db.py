@@ -85,6 +85,8 @@ CREATE INDEX IF NOT EXISTS ix_gp_nome ON g_pessoas(nome_busca);
 CREATE TABLE IF NOT EXISTS g_arestas(pessoa TEXT, titulo TEXT, PRIMARY KEY(pessoa, titulo));
 CREATE INDEX IF NOT EXISTS ix_ga_t ON g_arestas(titulo);
 
+CREATE TABLE IF NOT EXISTS traducoes(chave TEXT PRIMARY KEY, origem TEXT, pt TEXT, em TEXT);
+
 CREATE TABLE IF NOT EXISTS meta(chave TEXT PRIMARY KEY, valor TEXT);
 """
 

@@ -9,7 +9,7 @@ import logging
 import sys
 import time
 
-from muvim import db
+from muvim import db, traducao
 from muvim.config import LOGS
 from muvim.fontes import extras, qlever, tvmaze, wikidata, wikipedia
 
@@ -22,6 +22,7 @@ def etapas(registrar, forcar_grafo):
         ("tvmaze", lambda c, e: tvmaze.coletar(c, e, registrar)),
         ("aniversarios", extras.aniversarios),
         ("curiosidades", wikipedia.extrair_curiosidades),
+        ("traducao", traducao.coletar),
         ("grafo", lambda c, e: qlever.grafo(c, e, forcar_grafo)),
     ]
 
