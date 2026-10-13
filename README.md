@@ -44,7 +44,7 @@ GitHub Actions (todo dia, 9h de Brasília)
   └─ publica site/ no GitHub Pages
 ```
 
-- Uma fonte com erro não impede a publicação: a tela Bastidores mostra o resultado de cada etapa.
+- Uma fonte com erro não impede a publicação: o log de cada coleta, na aba Actions, mostra o resultado de cada etapa.
 - As requisições têm pausa por site e nova tentativa em erro 429.
 - Para rodar a coleta na hora: aba **Actions** → *Coleta e publicação* → **Run workflow**.
 

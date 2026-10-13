@@ -45,7 +45,9 @@ nav.tabs a{padding:7px 14px;border-radius:999px;color:var(--muted);font-weight:5
 nav.tabs a[aria-current="page"]{background:var(--fg);color:var(--bg)}
 nav.tabs a:hover:not([aria-current="page"]){background:var(--surface2);color:var(--fg)}
 
-main{padding-block:28px 80px}
+main{padding-block:28px 56px}
+.rodape{padding-block:20px 40px;border-top:1px solid var(--line);font-size:12px;color:var(--faint);line-height:1.6}
+.rodape a{color:var(--muted)}
 .view{display:grid;gap:44px;grid-template-columns:minmax(0,1fr)}
 .view>*{min-width:0}
 .sec-h{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px}

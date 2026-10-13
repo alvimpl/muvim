@@ -356,26 +356,19 @@ function ligarMaratona(T) {
   calc();
 }
 
-/* ---------- Bastidores ---------- */
-const NOMES_FONTES = { "wikipedia-listas": "Wikipedia · listas de estreias", "wikipedia-detalhes": "Wikipedia · resumos e pôsteres",
-  wikidata: "Wikidata · crítica, popularidade e Brasil", tvmaze: "TVmaze · séries", aniversarios: "Wikimedia · aniversários",
-  curiosidades: "Curiosidades do artigo", grafo: "Wikidata via QLever · ligações" };
-async function vBastidores() {
-  const B = await carregar("bastidores.json");
-  const c = B.contagens;
-  const cartao = f => {
-    const cls = f.status === "erro" ? "erro" : "ok";
-    return `<article><h4>${esc(NOMES_FONTES[f.fonte] || f.fonte)}<span class="st ${cls}">${f.status === "erro" ? "Erro" : "Ok"}</span></h4><div class="big num">${pt(f.itens)}</div>
-      <p>${esc(f.mensagem || "")}</p><p class="num" style="font-size:11px">${esc((f.fim || f.inicio || "").replace("T", " "))} UTC</p></article>`;
-  };
-  render(`<section class="view">
-  <div><div class="sec-h"><h2>No banco</h2><p>Última coleta: ${B.ultima_coleta ? esc(B.ultima_coleta.replace("T", " ")) + " UTC" : "nenhuma ainda"}</p></div>
-  <div class="counts">${[[c.filmes, "filmes"], [c.series, "séries"], [c.com_pt, "sinopses em português"], [c.com_critica, "com nota da crítica"], [c.curiosidades, "com curiosidades"], [c.episodios, "episódios"], [c.grafo_pessoas, "pessoas no grafo"], [c.mudancas, "mudanças registradas"]]
-    .map(([n, r]) => `<div class="kpi"><b class="num">${pt(n)}</b><span>${r}</span></div>`).join("")}</div>
-  <div class="acts" style="margin-top:20px"><a class="btn" href="${esc(B.repositorio)}/actions" target="_blank" rel="noopener">Coletas no GitHub ↗</a><a class="btn" href="${esc(B.repositorio)}" target="_blank" rel="noopener">Código ↗</a></div></div>
-  <div><div class="sec-h"><h2>Fontes</h2><p>Resultado da última execução de cada etapa.</p></div><div class="srcs">${B.fontes.filter(f => NOMES_FONTES[f.fonte]).map(cartao).join("") || '<div class="vazio">Nenhuma coleta registrada.</div>'}</div></div>
-  <div class="note">Todas as fontes são abertas e não pedem cadastro: Wikipedia, Wikidata (pelo QLever), TVmaze e Wikimedia. A coleta roda uma vez por dia no GitHub Actions e o site é publicado no GitHub Pages. Pôsteres são exibidos direto da Wikipedia e do TVmaze.</div>
-  </section>`);
+/* ---------- Rodapé: quando atualizou e de onde vêm os dados ---------- */
+async function rodape() {
+  let quando = "";
+  try {
+    const B = await carregar("bastidores.json");
+    if (B.ultima_coleta) {
+      const d = new Date(B.ultima_coleta + "Z");
+      quando = `Atualizado em ${d.toLocaleDateString("pt-BR", { day: "numeric", month: "long" })}, às ${d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}. `;
+    }
+  } catch {}
+  $("rodape").innerHTML = `${quando}Dados de <a href="https://www.wikipedia.org" target="_blank" rel="noopener">Wikipedia</a>,
+    <a href="https://www.wikidata.org" target="_blank" rel="noopener">Wikidata</a> e <a href="https://www.tvmaze.com" target="_blank" rel="noopener">TVmaze</a>.
+    Pôsteres exibidos direto das fontes. Notas da crítica: Rotten Tomatoes e Metacritic, via Wikidata.`;
 }
 
 /* ---------- busca e alertas (gaveta) ---------- */
@@ -436,7 +429,7 @@ $("sino").onclick = async () => {
 };
 
 /* ---------- rotas ---------- */
-const ROTAS = { radar: vRadar, series: vSeries, pessoas: vPessoas, mudou: vMudou, ligacoes: vLigacoes, lista: vLista, bastidores: vBastidores };
+const ROTAS = { radar: vRadar, series: vSeries, pessoas: vPessoas, mudou: vMudou, ligacoes: vLigacoes, lista: vLista };
 async function navegar() {
   const h = decodeURIComponent(location.hash.slice(1)) || "radar";
   const [rota, ...resto] = h.split("/");
@@ -452,3 +445,4 @@ $("today").textContent = HOJE.toLocaleDateString("pt-BR", { weekday: "long", day
 addEventListener("hashchange", navegar);
 navegar();
 atualizarSino();
+rodape();
